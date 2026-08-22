@@ -1,0 +1,6 @@
+[submodule "vendor/fight-fraud-framework"]
+	path = vendor/fight-fraud-framework
+	url = https://github.com/center-for-threat-informed-defense/fight-fraud-framework
+[submodule "vendor/skills"]
+	path = vendor/skills
+	url = https://github.com/mukul975/Anthropic-Cybersecurity-Skills

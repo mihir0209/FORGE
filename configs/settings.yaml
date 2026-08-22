@@ -1,0 +1,29 @@
+# FORGE runtime settings — single source for thresholds & flow control
+# (code reads this via forge.config; never hardcode operational numbers)
+
+run:
+  run_id_prefix: "forge"
+  workers: 4
+
+pipeline:
+  training_threshold_min: 10   # verified strategies before a train round
+  training_threshold_max: 20
+  concurrency_per_family: 2    # Inngest Concurrency(scope=fn, key=attack_family)
+  cycle_timeout_minutes: 30
+
+providers:
+  default: openai              # gpt-4o-mini cost tier / gpt-5-mini quality tier
+  fallback: anthropic          # claude-haiku-4-5 on rate-limit/refusal/schema errors
+  max_schema_retries: 2
+
+detect:
+  calibration_method: isotonic # fallback sigmoid if calib rows < 1000
+  min_calib_rows: 1000
+  fpr_targets: [0.001, 0.01]
+  latency_p95_budget_ms: 100
+  promote_requires_all_gates: true
+
+gate:
+  covered_min_score: 0.80      # >= covered at operating point
+  partial_min_score: 0.35      # between => partial; below => blind_spot
+  similarity_duplicate_max: 0.92

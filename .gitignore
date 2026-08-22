@@ -1,0 +1,15 @@
+# runtime state
+data/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# agent workspace drafts (plans, research, diagrams)
+.agent/
+
+# vendored knowledge bases are pinned git submodules (tracked as gitlinks)
+
+# regenerable submission artifacts (sources live in .agent/)
+*.docx
