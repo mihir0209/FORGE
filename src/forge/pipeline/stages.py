@@ -40,7 +40,7 @@ from forge.gapmine import fallback_brief, rank
 from forge.ids import cycle_id_base, strategy_id_for
 from forge.kb import Registry, SQLiteRegistry, search
 from forge.redteam import compose_draft, novelty
-from forge.redteam.fixtures import default_draft
+from forge.redteam.fixtures import draft_for_tactic
 from forge.simulate import simulate
 
 
@@ -84,7 +84,7 @@ def stage_compose(data: dict[str, Any]) -> dict[str, object] | None:
     slug = brief.suggested_family.removesuffix("_family")
     search(KBQuery(tactic=slug, technique_ids=brief.target_f3_cells, limit=8))
 
-    spec = compose_draft(default_draft(), strategy_id=strategy_id_for(ev.seed))
+    spec = compose_draft(draft_for_tactic(slug), strategy_id=strategy_id_for(ev.seed))
     verdict = novelty(spec, reg)
 
     if not verdict.novel:
