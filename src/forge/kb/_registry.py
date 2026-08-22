@@ -131,7 +131,7 @@ class PostgresRegistry(Registry):
     def __init__(self, dsn: str) -> None:
         import psycopg
 
-        self._conn = psycopg.connect(dsn, autocommit=False)
+        self._conn = psycopg.connect(dsn, autocommit=True)
         with self._conn.cursor() as cur:
             cur.execute(
                 """
@@ -155,10 +155,9 @@ class PostgresRegistry(Registry):
                 );
                 """
             )
-        self._conn.commit()
 
     def record_strategy(self, spec: StrategySpec) -> None:
-        with self._conn.transaction(), self._conn.cursor() as cur:
+        with self._conn.cursor() as cur:
             self._upsert_strategy(cur, spec)
 
     def _upsert_strategy(self, cur: Any, spec: StrategySpec) -> None:
@@ -199,7 +198,7 @@ class PostgresRegistry(Registry):
     def record_cycle(self, record: CycleRecord) -> None:
         from psycopg.types.json import Jsonb
 
-        with self._conn.transaction(), self._conn.cursor() as cur:
+        with self._conn.cursor() as cur:
             self._upsert_strategy(cur, record.strategy)
             cur.execute(
                 """
