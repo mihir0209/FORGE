@@ -18,4 +18,3 @@ def test_trace_features_derives_from_signals() -> None:
         assert feats["new_device"] == (1.0 if "new_device_payment" in sigs else 0.0)
         # FEATURE_NAMES is the single source
         assert set(feats) == set(FEATURE_NAMES)
-

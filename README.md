@@ -41,6 +41,23 @@ Simulate/investigate/gate run under per-`attack_family` concurrency keys.
 Duplicate fingerprints are dropped at compose; offline equivalent:
 `uv run forge cycle --seed 42`.
 
+## Judge-facing dashboard
+
+```bash
+cd frontend
+npm install
+npm run dev                   # Vite on :5173, proxies /api to FastAPI
+
+# production bundle (served automatically by FastAPI at /)
+npm run build
+cd ..
+uv run uvicorn forge.api.app:app --port 8000
+```
+
+Surfaces: Control Room, Attack Lab, Defense Lab, Model Registry, Gap Miner,
+F3 Coverage Matrix, and guarded Analyst Chat. All views read the live SQLite
+registry and model artifacts; there is no mock-data path.
+
 ## Layout
 
 - `src/forge/contracts` — pydantic models; the only shared dependency.

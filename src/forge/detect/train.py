@@ -124,4 +124,5 @@ def train_detector(
         p95_latency_ms=p95,
         artifact_path=str(artifact),
     )
+    artifact.with_suffix(".json").write_text(report.model_dump_json(indent=2))
     return report
