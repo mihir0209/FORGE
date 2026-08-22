@@ -20,8 +20,9 @@ from forge.contracts.contracts import (
     WorldSeed,
 )
 from forge.detect import RuleBaselineDetector, gate_score
-from forge.gapmine import rank
-from forge.kb import Registry, f3_matrix, search
+from forge.gapmine import fallback_brief, rank
+from forge.ids import cycle_id_base, strategy_id_for
+from forge.kb import Registry, search
 from forge.redteam import compose, compose_draft
 from forge.redteam.compose import novelty
 from forge.simulate import simulate
@@ -54,7 +55,9 @@ def run_offline_cycle(
 
     provider, model = "scripted", "fixture"
     if draft is not None:
-        spec = compose_draft(draft, strategy_id=_strategy_id(seed), provider=provider, model=model)
+        spec = compose_draft(
+            draft, strategy_id=strategy_id_for(seed), provider=provider, model=model
+        )
     else:
         assert reasoning is not None
         provider = reasoning.name.split("+")[0].split(":")[0] or reasoning.name
@@ -63,7 +66,7 @@ def run_offline_cycle(
             brief,
             hits,
             reasoning,
-            strategy_id=_strategy_id(seed),
+            strategy_id=strategy_id_for(seed),
             provider=provider,
             model=model,
         )
@@ -85,7 +88,7 @@ def run_offline_cycle(
     accepted = verdict.novel and gate.coverage.value != "covered"
     ordinal = len(registry.cycles()) + 1  # deterministic, unique per run order
     record = CycleRecord(
-        cycle_id=f"{_cycle_id(spec.strategy_id, seed)}{ordinal:04d}",
+        cycle_id=f"{cycle_id_base(spec.strategy_id, seed)}{ordinal:04d}",
         run_id=f"offline-{seed}",
         strategy=spec,
         trace_ref=result.trace.trace_id,
@@ -97,12 +100,7 @@ def run_offline_cycle(
     return record
 
 
-def _strategy_id(seed: int) -> str:
-    return f"s_off_{sha256(str(seed).encode()).hexdigest()[:10]}"
-
-
-def _cycle_id(strategy_id: str, seed: int) -> str:
-    return f"cy_{sha256(f'{strategy_id}:{seed}'.encode()).hexdigest()[:12]}"
+del sha256  # ids moved to forge.ids
 
 
 def _slug_of(brief: GapBrief) -> str:
@@ -110,14 +108,4 @@ def _slug_of(brief: GapBrief) -> str:
     return family.removesuffix("_family")
 
 
-def _fallback_brief() -> GapBrief:
-    matrix = f3_matrix()
-    tac = matrix.tactics[0]
-    return GapBrief(
-        brief_id="gap_default",
-        objective=f"first coverage for {tac.name}",
-        target_f3_cells=[],
-        suggested_family=f"{tac.slug}_family",
-        priority=0.5,
-        rationale="registry empty",
-    )
+_fallback_brief = fallback_brief

@@ -50,3 +50,20 @@ def rank(registry: Registry, limit: int = 3) -> list[GapBrief]:
             )
         )
     return sorted(briefs, key=lambda b: -b.priority)[:limit]
+
+
+def fallback_brief() -> GapBrief:
+    """Deterministic default objective when ranking yields nothing."""
+    matrix = f3_matrix()
+    tac = matrix.tactics[0]
+    return GapBrief(
+        brief_id="gap_default",
+        objective=f"first coverage for {tac.name}",
+        target_f3_cells=[],
+        suggested_family=f"{tac.slug}_family",
+        priority=0.5,
+        rationale="registry empty or fully covered without blind spots",
+    )
+
+
+__all__ = ["fallback_brief", "rank"]

@@ -21,6 +21,26 @@ uv sync                       # pinned deps
 uv run pytest -q              # contracts & blindness tests
 ```
 
+## Durable pipeline (Inngest)
+
+```bash
+# terminal 1 — the app (FastAPI + inngest serve at /api/inngest)
+FORGE_REGISTRY_PATH=data/registry.sqlite uv run uvicorn forge.api.app:app --port 8000
+
+# terminal 2 — the dev server (queues, retries, concurrency, cron)
+npx -y inngest-cli@latest dev --sdk-url http://127.0.0.1:8000/api/inngest
+
+# trigger one adversarial cycle
+curl -X POST http://127.0.0.1:8288/e/dev -H 'Content-Type: application/json' \
+  -d '{"name":"cycle.requested","data":{"seed":42}}'
+```
+
+Flow: `gap.mine` (cron) → `cycle.requested` → compose → simulate → investigate →
+gate.scored → finalize → `cycle.accepted` (+ `corpus.threshold_reached`).
+Simulate/investigate/gate run under per-`attack_family` concurrency keys.
+Duplicate fingerprints are dropped at compose; offline equivalent:
+`uv run forge cycle --seed 42`.
+
 ## Layout
 
 - `src/forge/contracts` — pydantic models; the only shared dependency.

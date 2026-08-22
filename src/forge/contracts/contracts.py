@@ -307,26 +307,37 @@ class EvGapBriefCreated(Strict):
 class EvStrategyProposed(Strict):
     strategy_id: str
     attack_family: str
-    spec_ref: str  # path on disk; events stay small (<64 KiB)
+    spec_ref: str  # artifact ref; events stay small (<64 KiB)
+    seed: int
 
 
 class EvTraceCompleted(Strict):
     trace_id: str
     strategy_id: str
     attack_family: str
-    trace_ref: str
+    trace_ref: str  # artifact ref
+    spec_ref: str  # artifact ref
+    seed: int
 
 
 class EvInvestigationCompleted(Strict):
     trace_id: str
     strategy_id: str
+    attack_family: str
+    trace_ref: str
+    spec_ref: str
     report_ref: str
+    seed: int
 
 
 class EvGateScored(Strict):
-    cycle_id: str
     strategy_id: str
-    coverage: Coverage
+    attack_family: str
+    trace_ref: str
+    report_ref: str
+    spec_ref: str
+    gate: GateResult
+    seed: int
 
 
 # ---------------------------------------------------------------------------
@@ -418,3 +429,31 @@ class BlueAssessment(Strict):
     confidence: float = Field(ge=0.0, le=1.0)
     mitigations: list[str] = Field(default_factory=list)
     uncovered_gaps: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Pipeline events (P3) — small payloads; heavy artifacts live behind refs
+# ---------------------------------------------------------------------------
+
+
+class EvCycleRequested(Strict):
+    seed: int
+    brief_id: str | None = None
+
+
+class EvCycleAccepted(Strict):
+    cycle_id: str
+    strategy_id: str
+    attack_family: str
+
+
+class EvCorpusThresholdReached(Strict):
+    verified_count: int
+    min_required: int
+
+
+def ev_dict(e: Strict) -> dict[str, object]:
+    """Event data must be JSON-safe and small."""
+    dump = e.model_dump(mode="json")
+    assert len(json.dumps(dump)) < 64 * 1024, "event payload exceeds 64 KiB"
+    return dump
