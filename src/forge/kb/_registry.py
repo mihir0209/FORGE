@@ -1,10 +1,12 @@
-"""Strategy/cycle registry — Protocol with two adapters (memory, SQLite WAL)."""
+# pyright: reportMissingTypeStubs=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportArgumentType=false
+"""Strategy/cycle registry — Protocol with memory, SQLite and PostgreSQL adapters."""
 
 from __future__ import annotations
 
 import json
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 from forge.contracts.contracts import CycleRecord, StrategySpec
 
@@ -121,3 +123,100 @@ class SQLiteRegistry(Registry):
     def strategy_count(self) -> int:
         (n,) = self._conn.execute("SELECT COUNT(*) FROM specs").fetchone()
         return int(n)
+
+
+class PostgresRegistry(Registry):
+    """Concurrent production adapter with atomic strategy uniqueness."""
+
+    def __init__(self, dsn: str) -> None:
+        import psycopg
+
+        self._conn = psycopg.connect(dsn, autocommit=False)
+        with self._conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS forge_specs (
+                  strategy_id TEXT PRIMARY KEY,
+                  fingerprint TEXT NOT NULL UNIQUE,
+                  attack_family TEXT NOT NULL,
+                  payload JSONB NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_forge_specs_family
+                  ON forge_specs(attack_family);
+                CREATE TABLE IF NOT EXISTS forge_cycles (
+                  sequence BIGINT GENERATED ALWAYS AS IDENTITY,
+                  cycle_id TEXT PRIMARY KEY,
+                  fingerprint TEXT NOT NULL,
+                  accepted BOOLEAN NOT NULL,
+                  coverage TEXT NOT NULL,
+                  payload JSONB NOT NULL
+                );
+                """
+            )
+        self._conn.commit()
+
+    def record_strategy(self, spec: StrategySpec) -> None:
+        with self._conn.transaction(), self._conn.cursor() as cur:
+            self._upsert_strategy(cur, spec)
+
+    def _upsert_strategy(self, cur: Any, spec: StrategySpec) -> None:
+        from psycopg.types.json import Jsonb
+
+        cur.execute(
+            """
+                INSERT INTO forge_specs(strategy_id,fingerprint,attack_family,payload)
+                VALUES (%s,%s,%s,%s)
+                ON CONFLICT (strategy_id) DO UPDATE SET payload=EXCLUDED.payload
+                """,
+            (
+                spec.strategy_id,
+                spec.fingerprint(),
+                spec.attack_family,
+                Jsonb(spec.model_dump(mode="json")),
+            ),
+        )
+
+    def similar(self, fingerprint: str) -> list[StrategySpec]:
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT payload FROM forge_specs WHERE fingerprint=%s", (fingerprint,))
+            return [StrategySpec.model_validate(row[0]) for row in cur.fetchall()]
+
+    def same_family_count(self, attack_family: str) -> int:
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM forge_specs WHERE attack_family=%s",
+                (attack_family,),
+            )
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
+
+    def record_cycle(self, record: CycleRecord) -> None:
+        from psycopg.types.json import Jsonb
+
+        with self._conn.transaction(), self._conn.cursor() as cur:
+            self._upsert_strategy(cur, record.strategy)
+            cur.execute(
+                """
+                    INSERT INTO forge_cycles(cycle_id,fingerprint,accepted,coverage,payload)
+                    VALUES (%s,%s,%s,%s,%s)
+                    ON CONFLICT (cycle_id) DO NOTHING
+                """,
+                (
+                    record.cycle_id,
+                    record.strategy.fingerprint(),
+                    record.accepted,
+                    record.gate_result.coverage.value,
+                    Jsonb(record.model_dump(mode="json")),
+                ),
+            )
+
+    def cycles(self) -> list[CycleRecord]:
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT payload FROM forge_cycles ORDER BY sequence")
+            return [CycleRecord.model_validate(row[0]) for row in cur.fetchall()]
+
+    def strategy_count(self) -> int:
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM forge_specs")
+            row = cur.fetchone()
+            return int(row[0]) if row else 0

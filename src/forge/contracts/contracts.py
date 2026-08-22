@@ -122,6 +122,8 @@ class WorldSeed(Strict):
 
 
 class ActorKind(StrEnum):
+    ATTACKER = "attacker"
+    VICTIM = "victim"
     CUSTOMER = "customer"
     MERCHANT = "merchant"
     DEVICE = "device"
@@ -135,7 +137,9 @@ class TraceEvent(Strict):
     actor_id: str
     kind: str
     payload: dict[str, Any] = Field(default_factory=dict)
-    # ground truth channel — stripped by ObservedTraceView
+    # Internal generation truth must live here, never in payload. It is stripped
+    # by observed_view() before anything reaches blue-team code.
+    private_payload: dict[str, Any] = Field(default_factory=dict)
     is_attack_step: bool = False
     attack_stage: LifecycleStage | None = None
 
@@ -168,7 +172,11 @@ class SyntheticTrace(Strict):
             trace_id=self.trace_id,
             events=[
                 e.model_copy(
-                    update={"is_attack_step": False, "attack_stage": None},
+                    update={
+                        "private_payload": {},
+                        "is_attack_step": False,
+                        "attack_stage": None,
+                    },
                     deep=True,
                 )
                 for e in self.events
@@ -184,7 +192,9 @@ class ObservedTraceView(Strict):
 
     @model_validator(mode="after")
     def _no_ground_truth(self) -> ObservedTraceView:
-        if any(e.is_attack_step or e.attack_stage is not None for e in self.events):
+        if any(
+            e.private_payload or e.is_attack_step or e.attack_stage is not None for e in self.events
+        ):
             raise ValueError("ObservedTraceView must not contain ground-truth labels")
         return self
 
@@ -281,6 +291,199 @@ class PromotionVerdict(Strict):
     checks: dict[str, bool] = Field(default_factory=dict)
     installed: bool = False
     notes: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Multimodal actor sandbox (P6)
+# ---------------------------------------------------------------------------
+
+
+class ToolKind(StrEnum):
+    IMAGE_GENERATE = "image.generate"
+    AUDIO_GENERATE = "audio.generate"
+    VIDEO_GENERATE = "video.generate"
+    MEDIA_INSPECT = "media.inspect"
+    CALL_START = "call.start"
+    CALL_SAMPLE = "call.sample"
+    CALL_END = "call.end"
+    PAYMENT_INITIATE = "payment.initiate"
+
+
+class ToolAction(Strict):
+    action_id: str
+    tool: ToolKind
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    depends_on: list[str] = Field(default_factory=list)
+
+
+class ActionPlan(Strict):
+    plan_id: str
+    strategy_id: str
+    actor_id: str
+    actions: list[ToolAction] = Field(min_length=1)
+
+
+class ArtifactRef(Strict):
+    artifact_id: str
+    uri: str
+    sha256: str
+    media_type: str
+    byte_size: int
+
+
+class ArtifactProvenance(Strict):
+    artifact: ArtifactRef
+    cycle_id: str
+    operation_id: str
+    adapter_name: str
+    adapter_version: str
+    seed: int
+    input_artifact_ids: list[str] = Field(default_factory=list)
+    tool_versions: dict[str, str] = Field(default_factory=dict)
+    # Red-only generation truth; never serialized into MediaObservation.
+    generation_parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class MediaObservation(Strict):
+    artifact: ArtifactRef
+    role: str
+    observed_at: datetime
+    container: str | None = None
+    codecs: list[str] = Field(default_factory=list)
+    duration_seconds: float | None = None
+    width: int | None = None
+    height: int | None = None
+    frame_rate: float | None = None
+    audio_sample_rate: int | None = None
+    encoder_tags: dict[str, str] = Field(default_factory=dict)
+    decode_warnings: list[str] = Field(default_factory=list)
+    perceptual_hash: str | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+
+
+class MediaJobRequest(Strict):
+    job_id: str
+    cycle_id: str
+    operation: ToolKind
+    input_artifact_ids: list[str] = Field(default_factory=list)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    seed: int
+    profile: str = "fixture-v1"
+    deadline_ms: int = 300_000
+
+
+class MediaJobResult(Strict):
+    job_id: str
+    status: str
+    output_artifacts: list[ArtifactRef] = Field(default_factory=list[ArtifactRef])
+    observations: list[MediaObservation] = Field(default_factory=list[MediaObservation])
+    error_code: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Context budget and durable compaction (P6)
+# ---------------------------------------------------------------------------
+
+
+class EvidenceRef(Strict):
+    ref: str
+    sha256: str
+    media_type: str
+    byte_size: int
+
+
+class ContextBudgetPolicy(Strict):
+    context_window_tokens: int = Field(gt=0)
+    max_fraction: float = Field(default=0.25, gt=0, le=0.25)
+    max_output_tokens: int = Field(gt=0)
+    fixed_safety_tokens: int = 512
+    target_fraction_after_compaction: float = Field(default=0.18, gt=0, lt=0.25)
+    min_recent_turns: int = 2
+    max_compaction_passes: int = 2
+
+
+class CompactionRecord(Strict):
+    compaction_id: str
+    run_id: str
+    conversation_id: str
+    agent_role: str
+    sequence: int
+    created_at: datetime = Field(default_factory=_now)
+    source_history_ref: str
+    source_history_sha256: str
+    previous_compaction_ref: str | None = None
+    previous_digest_sha256: str | None = None
+    objective: str
+    constraints: list[str] = Field(default_factory=list)
+    decisions: list[str] = Field(default_factory=list)
+    completed: list[str] = Field(default_factory=list)
+    open_work: list[str] = Field(default_factory=list)
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list[EvidenceRef])
+    recent_message_ids: list[str] = Field(default_factory=list)
+    input_tokens_estimated: int
+    record_sha256: str
+
+
+# ---------------------------------------------------------------------------
+# Multi-day run supervision and export (P6)
+# ---------------------------------------------------------------------------
+
+
+class RunState(StrEnum):
+    SCHEDULED = "scheduled"
+    RUNNING = "running"
+    DRAINING = "draining"
+    FINALIZING = "finalizing"
+    COMPLETED = "completed"
+    STOPPED = "stopped"
+    EXPIRED = "expired"
+    FAILED = "failed"
+
+
+class RunSupervisorConfig(Strict):
+    run_id: str
+    starts_at: datetime
+    ends_at: datetime
+    max_cycles: int = Field(gt=0)
+    max_storage_bytes: int = Field(gt=0)
+    queue_capacity: int = Field(gt=0)
+    queue_full_threshold: float = Field(default=0.90, gt=0, le=1)
+    queue_resume_threshold: float = Field(default=0.70, gt=0, le=1)
+    deadline_grace_seconds: int = 1800
+    terminal_manifest_prefix: str = "exports"
+
+
+class RunSupervisorState(Strict):
+    run_id: str
+    state: RunState
+    version: int = 0
+    started_at: datetime | None = None
+    stop_requested_at: datetime | None = None
+    stop_reason: str | None = None
+    deadline_at: datetime
+    admitted_cycles: int = 0
+    completed_cycles: int = 0
+    active_cycles: int = 0
+    queued_cycles: int = 0
+    storage_bytes: int = 0
+    queue_alert_open: bool = False
+    terminal_manifest_ref: str | None = None
+    terminal_manifest_sha256: str | None = None
+
+
+class ManifestEntry(Strict):
+    ref: str
+    sha256: str
+    byte_size: int
+    kind: str
+
+
+class ArtifactManifest(Strict):
+    run_id: str
+    created_at: datetime = Field(default_factory=_now)
+    state: RunState
+    entries: list[ManifestEntry] = Field(default_factory=list[ManifestEntry])
+    manifest_sha256: str
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +663,7 @@ class BlueAssessment(Strict):
 class EvCycleRequested(Strict):
     seed: int
     brief_id: str | None = None
+    scenario: str | None = None
 
 
 class EvCycleAccepted(Strict):

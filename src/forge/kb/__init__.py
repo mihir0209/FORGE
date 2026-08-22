@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from forge.contracts.contracts import KBHit, KBQuery
 from forge.kb._f3 import F3Matrix, f3_matrix
-from forge.kb._registry import InMemoryRegistry, Registry, SQLiteRegistry
+from forge.kb._registry import InMemoryRegistry, PostgresRegistry, Registry, SQLiteRegistry
 from forge.kb._skills import fraud_skills
 
 
@@ -52,6 +52,17 @@ def search(query: KBQuery) -> list[KBHit]:
     return hits[: max(query.limit, 0)] or _fallback_hits(query)
 
 
+def registry_from_env() -> Registry:
+    import os
+    from pathlib import Path
+
+    dsn = os.environ.get("FORGE_DATABASE_URL")
+    if dsn:
+        return PostgresRegistry(dsn)
+    path = Path(os.environ.get("FORGE_REGISTRY_PATH", "data/registry.sqlite"))
+    return SQLiteRegistry(path)
+
+
 def _fallback_hits(query: KBQuery) -> list[KBHit]:
     matrix = f3_matrix()
     tac = matrix.tactic_by_slug(query.tactic or "")
@@ -63,9 +74,11 @@ def _fallback_hits(query: KBQuery) -> list[KBHit]:
 __all__ = [
     "F3Matrix",
     "InMemoryRegistry",
+    "PostgresRegistry",
     "Registry",
     "SQLiteRegistry",
     "f3_matrix",
     "fraud_skills",
+    "registry_from_env",
     "search",
 ]

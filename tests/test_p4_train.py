@@ -37,15 +37,9 @@ def test_dataset_builder_produces_versioned_splits(tmp_path: Path) -> None:
     assert ref.rows == 32  # 8 positives (one per distinct) + 24 negatives
     for p in [ref.train_path, ref.calib_path, ref.test_path]:
         df = pd.read_parquet(p)
-        assert set(df.columns) == {
-            "burst",
-            "new_device",
-            "refund_pressure",
-            "off_hours_focus",
-            "cashout_pressure",
-            "volume",
-            "label",
-        }
+        from forge.signals import FEATURE_NAMES
+
+        assert set(df.columns) == {*FEATURE_NAMES, "label"}
         assert df["label"].nunique() == 2  # both classes present in each split
 
 

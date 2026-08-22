@@ -57,12 +57,26 @@ async def gap_mine(ctx: inngest.Context) -> None:
 )
 async def cycle_compose(ctx: inngest.Context) -> None:
     data = dict(ctx.event.data)
-    proposed = await _run_step(ctx.step, "compose", stages.stage_compose, data)
-    if proposed is not None:
+    admitted = await _run_step(ctx.step, "admit", stages.stage_admit_cycle, data)
+    if not admitted:
+        return
+    if data.get("scenario") == "multimodal_deepfake_call":
+        await _run_step(ctx.step, "cycle_started", stages.stage_cycle_started, data)
+        result = await _run_step(ctx.step, "multimodal_cycle", stages.stage_multimodal_cycle, data)
         await ctx.step.send_event(
-            "emit_proposed",
-            inngest.Event(name="strategy.proposed", data=proposed),
+            "emit_multimodal_complete",
+            inngest.Event(name="cycle.accepted", data=result),
         )
+        return
+    proposed = await _run_step(ctx.step, "compose", stages.stage_compose, data)
+    if proposed is None:
+        await _run_step(ctx.step, "release_admission", stages.stage_release_admission, data)
+        return
+    await _run_step(ctx.step, "cycle_started", stages.stage_cycle_started, data)
+    await ctx.step.send_event(
+        "emit_proposed",
+        inngest.Event(name="strategy.proposed", data=proposed),
+    )
 
 
 @client.create_function(
@@ -133,6 +147,34 @@ async def cycle_finalize(ctx: inngest.Context) -> None:
     await ctx.step.send_event("emit_final", events)
 
 
+@client.create_function(
+    fn_id="run_supervisor_tick",
+    trigger=inngest.TriggerCron(cron="TZ=UTC */1 * * * *"),
+)
+async def run_supervisor_tick(ctx: inngest.Context) -> None:
+    await _run_step(ctx.step, "tick", stages.stage_supervisor_tick)
+
+
+@client.create_function(
+    fn_id="train_round",
+    trigger=inngest.TriggerEvent(event="corpus.threshold_reached"),
+)
+async def train_round(ctx: inngest.Context) -> None:
+    ref = await _run_step(
+        ctx.step, "build_dataset", stages.stage_build_dataset, dict(ctx.event.data)
+    )
+    report = await _run_step(ctx.step, "train", stages.stage_train, ref)
+    verdict = await _run_step(ctx.step, "evaluate", stages.stage_evaluate, report)
+    result = await _run_step(
+        ctx.step,
+        "install",
+        stages.stage_install,
+        {"verdict": verdict, "report": report},
+    )
+    event_name = "model.promoted" if result.get("promoted") else "model.retained"
+    await ctx.step.send_event("emit_model_result", inngest.Event(name=event_name, data=result))
+
+
 functions: list[object] = [
     gap_mine,
     cycle_compose,
@@ -140,4 +182,6 @@ functions: list[object] = [
     cycle_investigate,
     gate_score_fn,
     cycle_finalize,
+    run_supervisor_tick,
+    train_round,
 ]

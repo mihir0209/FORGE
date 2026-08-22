@@ -25,6 +25,9 @@ FEATURE_NAMES: tuple[str, ...] = (
     "off_hours_focus",
     "cashout_pressure",
     "volume",
+    "unknown_peer_network",
+    "media_liveness_anomaly",
+    "transaction_during_call",
 )
 
 
@@ -132,12 +135,96 @@ def refund_chains(view: ObservedTraceView) -> list[Signal]:
     return out
 
 
+def unknown_peer_network(view: ObservedTraceView) -> list[Signal]:
+    """Peer IP/ASN/device never appeared in prior synthetic history."""
+    out: list[Signal] = []
+    for event in view.events:
+        if event.kind != "network.observed":
+            continue
+        asn_seen = int(event.payload.get("history_asn_seen_count", 1))
+        ip_seen = int(event.payload.get("history_ip_seen_count", 1))
+        device_seen = int(event.payload.get("history_device_seen_count", 1))
+        hosting = bool(event.payload.get("is_hosting_provider"))
+        if asn_seen == 0 and ip_seen == 0:
+            strength = 0.85 if hosting and device_seen == 0 else 0.65
+            out.append(
+                Signal(
+                    name="unknown_peer_network",
+                    description=(
+                        "call peer uses an unseen network/ASN"
+                        + (" classified as hosting" if hosting else "")
+                    ),
+                    evidence_refs=[event.event_id],
+                    strength=strength,
+                )
+            )
+    return out
+
+
+def media_liveness_anomaly(view: ObservedTraceView) -> list[Signal]:
+    """Versioned media/liveness adapter reports a high anomaly score."""
+    out: list[Signal] = []
+    for event in view.events:
+        if event.kind != "webrtc.rtp_stats":
+            continue
+        score = float(event.payload.get("liveness_anomaly_score", 0.0))
+        if score >= 0.7:
+            out.append(
+                Signal(
+                    name="media_liveness_anomaly",
+                    description=(
+                        f"video liveness anomaly score {score:.2f} from "
+                        f"{event.payload.get('detector_version', 'unknown detector')}"
+                    ),
+                    evidence_refs=[event.event_id],
+                    strength=min(score, 1.0),
+                )
+            )
+    return out
+
+
+def transaction_during_call(view: ObservedTraceView) -> list[Signal]:
+    """Payment lifecycle overlaps an active call with matching session/call IDs."""
+    starts: dict[str, TraceEvent] = {}
+    ends: dict[str, TraceEvent] = {}
+    for event in view.events:
+        call_id = str(event.payload.get("call_id", ""))
+        if event.kind == "call.started" and call_id:
+            starts[call_id] = event
+        elif event.kind == "call.ended" and call_id:
+            ends[call_id] = event
+
+    out: list[Signal] = []
+    for event in view.events:
+        if event.kind not in {"payment.initiated", "payment.authorized"}:
+            continue
+        call_id = str(event.payload.get("call_id", ""))
+        start = starts.get(call_id)
+        end = ends.get(call_id)
+        if start is not None and start.ts <= event.ts and (end is None or event.ts <= end.ts):
+            refs = [start.event_id, event.event_id]
+            if end is not None:
+                refs.append(end.event_id)
+            out.append(
+                Signal(
+                    name="transaction_during_call",
+                    description="payment authorized while the communication session was active",
+                    evidence_refs=refs,
+                    strength=0.9,
+                )
+            )
+    return out
+
+
 def all_signals(view: ObservedTraceView) -> list[Signal]:
     merged = (
         velocity_bursts(view)
         + off_hours_activity(view)
         + new_device_then_payment(view)
         + refund_chains(view)
+        + unknown_peer_network(view)
+        + media_liveness_anomaly(view)
+        + transaction_during_call(view)
     )
     seen: set[str] = set()
     unique = [s for s in merged if not (s.name in seen or seen.add(s.name))]

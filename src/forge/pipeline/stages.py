@@ -42,7 +42,7 @@ from forge.detect import gate_score
 from forge.detect.incumbent import load_incumbent
 from forge.gapmine import fallback_brief, rank
 from forge.ids import cycle_id_base, strategy_id_for
-from forge.kb import Registry, SQLiteRegistry, search
+from forge.kb import Registry, registry_from_env, search
 from forge.redteam import compose_draft, novelty
 from forge.redteam.fixtures import draft_for_tactic
 from forge.simulate import simulate
@@ -55,11 +55,7 @@ def _live_reasoning() -> ReasoningClient | None:
 
 
 def _registry() -> Registry:
-    path = os.environ.get(
-        "FORGE_REGISTRY_PATH",
-        str(Path(__file__).resolve().parents[2] / "data" / "registry.sqlite"),
-    )
-    return SQLiteRegistry(Path(path))
+    return registry_from_env()
 
 
 def _pick_brief(reg: Registry, brief_id: str | None) -> GapBrief:
@@ -83,6 +79,46 @@ def stage_gap_mine(_: dict[str, Any] | None = None) -> list[dict[str, object]]:
         seed = zlib.crc32(f"{b.brief_id}:{day}".encode()) & 0x7FFFFFFF
         outs.append(ev_dict(EvCycleRequested(seed=int(seed), brief_id=b.brief_id)))
     return outs
+
+
+def stage_admit_cycle(data: dict[str, Any]) -> bool:
+    """Atomic multi-day admission; a no-op outside supervised runs."""
+    from forge.operations.runtime import notifier_from_env, supervisor_from_env
+
+    supervisor = supervisor_from_env()
+    if supervisor is None:
+        return True
+    state = supervisor.start()
+    before_alert = state.queue_alert_open
+    allowed = supervisor.admit(
+        queue_depth=int(data.get("queue_depth", state.queued_cycles)),
+        storage_reservation=int(data.get("storage_reservation", 25 * 1024**2)),
+    )
+    after = supervisor.load_required()
+    if after.queue_alert_open and not before_alert:
+        notifier_from_env().send(
+            notification_type="queue.full",
+            run_id=after.run_id,
+            subject=f"FORGE queue high-water: {after.run_id}",
+            body=f"Queued={after.queued_cycles}; capacity={supervisor.config.queue_capacity}.",
+            dedup_scope=f"queue-episode-{after.version}",
+            dry_run=os.environ.get("SMTP_DRY_RUN", "0") == "1",
+        )
+    return allowed
+
+
+def stage_cycle_started(_: dict[str, Any]) -> dict[str, object]:
+    from forge.operations.runtime import supervisor_from_env
+
+    supervisor = supervisor_from_env()
+    return supervisor.cycle_started().model_dump(mode="json") if supervisor is not None else {}
+
+
+def stage_release_admission(_: dict[str, Any]) -> dict[str, object]:
+    from forge.operations.runtime import supervisor_from_env
+
+    supervisor = supervisor_from_env()
+    return supervisor.release_admission().model_dump(mode="json") if supervisor is not None else {}
 
 
 def stage_compose(data: dict[str, Any]) -> dict[str, object] | None:
@@ -112,6 +148,32 @@ def stage_compose(data: dict[str, Any]) -> dict[str, object] | None:
             attack_family=spec.attack_family,
             spec_ref=ref,
             seed=ev.seed,
+        )
+    )
+
+
+def stage_multimodal_cycle(data: dict[str, Any]) -> dict[str, object]:
+    """Execute the typed actor plan in one durable step (fixture or S3 adapter)."""
+    from forge.artifacts import artifact_store_from_env
+    from forge.multimodal_runner import run_multimodal_cycle
+    from forge.operations.runtime import supervisor_from_env
+
+    ev = EvCycleRequested.model_validate(data)
+    cycle_id = f"cycle-mm-{ev.seed}"
+    record = run_multimodal_cycle(
+        seed=ev.seed,
+        cycle_id=cycle_id,
+        registry=_registry(),
+        store=artifact_store_from_env(),
+    )
+    supervisor = supervisor_from_env()
+    if supervisor is not None:
+        supervisor.cycle_completed()
+    return ev_dict(
+        EvCycleAccepted(
+            cycle_id=record.cycle_id,
+            strategy_id=record.strategy.strategy_id,
+            attack_family=record.strategy.attack_family,
         )
     )
 
@@ -192,6 +254,12 @@ def stage_finalize(data: dict[str, Any]) -> dict[str, object]:
     )
     reg.record_cycle(record)
 
+    from forge.operations.runtime import supervisor_from_env
+
+    supervisor = supervisor_from_env()
+    if supervisor is not None:
+        supervisor.cycle_completed()
+
     out: dict[str, object] = {
         "accepted": ev_dict(
             EvCycleAccepted(
@@ -243,6 +311,18 @@ def stage_train(data: dict[str, Any]) -> dict[str, object]:
 
     ref = DatasetRef.model_validate(data)
     report = train_detector(ref)
+    from forge.operations.runtime import notifier_from_env, supervisor_from_env
+
+    supervisor = supervisor_from_env()
+    run_id = supervisor.config.run_id if supervisor else "unsupervised"
+    notifier_from_env().send(
+        notification_type="model.trained",
+        run_id=run_id,
+        subject=f"FORGE model trained: {report.candidate_id}",
+        body=report.model_dump_json(indent=2),
+        dedup_scope=report.candidate_id,
+        dry_run=os.environ.get("SMTP_DRY_RUN", "0") == "1",
+    )
     return report.model_dump(mode="json")
 
 
@@ -266,6 +346,10 @@ def stage_install(data: dict[str, Any]) -> dict[str, object]:
     verdict = PromotionVerdict.model_validate(data["verdict"])
     report = CandidateReport.model_validate(data["report"])
     installed = install_if_passed(report, verdict)
+    from forge.operations.runtime import notifier_from_env, supervisor_from_env
+
+    supervisor = supervisor_from_env()
+    run_id = supervisor.config.run_id if supervisor else "unsupervised"
     if installed:
         from forge.contracts.contracts import EvModelPromoted
 
@@ -273,13 +357,62 @@ def stage_install(data: dict[str, Any]) -> dict[str, object]:
             candidate_id=verdict.candidate_id, roc_auc=report.roc_auc
         ).model_dump(mode="json")
         out["promoted"] = True
+        notifier_from_env().send(
+            notification_type="model.promoted",
+            run_id=run_id,
+            subject=f"FORGE incumbent promoted: {verdict.candidate_id}",
+            body=verdict.model_dump_json(indent=2),
+            dedup_scope=verdict.candidate_id,
+            dry_run=os.environ.get("SMTP_DRY_RUN", "0") == "1",
+        )
         return out
     from forge.contracts.contracts import EvModelRetained
 
     reason = "; ".join(verdict.notes) or "gates not all passed"
     out = EvModelRetained(candidate_id=verdict.candidate_id, reason=reason).model_dump(mode="json")
     out["promoted"] = False
+    notifier_from_env().send(
+        notification_type="model.retained",
+        run_id=run_id,
+        subject=f"FORGE incumbent retained: {verdict.candidate_id}",
+        body=verdict.model_dump_json(indent=2),
+        dedup_scope=verdict.candidate_id,
+        dry_run=os.environ.get("SMTP_DRY_RUN", "0") == "1",
+    )
     return out
+
+
+def stage_supervisor_tick(_: dict[str, Any] | None = None) -> dict[str, object]:
+    """Deadline/drain reconciliation; terminal state freezes manifest and emails."""
+    from forge.operations.runtime import notifier_from_env, supervisor_from_env
+
+    supervisor = supervisor_from_env()
+    if supervisor is None:
+        return {}
+    state = supervisor.start()
+    state = supervisor.tick()
+    if state.state.value != "finalizing":
+        return state.model_dump(mode="json")
+
+    data_root = Path(os.environ.get("FORGE_DATA_DIR", "data"))
+    manifest = supervisor.finalize(
+        {
+            "traces": data_root / "artifacts" / "traces",
+            "media": data_root / "objects",
+            "datasets": data_root / "datasets",
+            "models": data_root / "models",
+            "notifications": data_root / "notifications",
+        }
+    )
+    notifier_from_env().send(
+        notification_type="run.terminal",
+        run_id=state.run_id,
+        subject=f"FORGE run ended: {state.run_id}",
+        body=manifest.model_dump_json(indent=2),
+        dedup_scope="terminal",
+        dry_run=os.environ.get("SMTP_DRY_RUN", "0") == "1",
+    )
+    return manifest.model_dump(mode="json")
 
 
 def save_report(strategy_id: str, payload: dict[str, Any]) -> str:

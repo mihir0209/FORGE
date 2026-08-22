@@ -7,8 +7,10 @@ import json
 import sys
 from pathlib import Path
 
+from forge.artifacts import artifact_store_from_env
 from forge.cycle_runner import run_offline_cycle
 from forge.kb import SQLiteRegistry
+from forge.multimodal_runner import run_multimodal_cycle
 from forge.redteam.fixtures import default_draft
 
 
@@ -74,6 +76,31 @@ def _cmd_cycle(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_multimodal(args: argparse.Namespace) -> int:
+    registry = SQLiteRegistry(Path(args.db))
+    store = artifact_store_from_env()
+    record = run_multimodal_cycle(
+        seed=args.seed,
+        cycle_id=args.cycle_id or f"cycle-mm-{args.seed}",
+        registry=registry,
+        store=store,
+    )
+    print(
+        json.dumps(
+            {
+                "cycle_id": record.cycle_id,
+                "family": record.strategy.attack_family,
+                "verdict": record.blue_report.verdict.value,
+                "signals": [s.name for s in record.blue_report.signals],
+                "gate_score": record.gate_result.score,
+                "trace_ref": record.trace_ref,
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="forge", description="FORGE lab CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -87,6 +114,15 @@ def main(argv: list[str] | None = None) -> int:
         help="use live LLM reasoning instead of the scripted offline fixture",
     )
     cyc.set_defaults(func=_cmd_cycle)
+
+    mm = sub.add_parser(
+        "multimodal-cycle",
+        help="execute a deepfake-assisted synthetic video-call payment cycle",
+    )
+    mm.add_argument("--seed", type=int, required=True)
+    mm.add_argument("--cycle-id")
+    mm.add_argument("--db", default="data/registry.sqlite")
+    mm.set_defaults(func=_cmd_multimodal)
 
     trn = sub.add_parser("train", help="run one training round from the current registry")
     trn.add_argument("--db", default="data/registry.sqlite")

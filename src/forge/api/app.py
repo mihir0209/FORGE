@@ -6,6 +6,7 @@ Same pragma rationale as pipeline/functions.py — untyped SDK boundary.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import inngest.fast_api
@@ -70,7 +71,8 @@ def create_app() -> FastAPI:
     def chat(request: ChatRequest) -> ChatResponse:
         return answer_chat(request, read_models.registry())
 
-    inngest.fast_api.serve(app, client, functions)
+    if os.environ.get("FORGE_INNGEST_MODE", "serve") == "serve":
+        inngest.fast_api.serve(app, client, functions)
 
     dist = Path(__file__).resolve().parents[3] / "frontend" / "dist"
     if dist.exists():

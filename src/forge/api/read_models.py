@@ -9,12 +9,11 @@ from pathlib import Path
 from typing import Any, cast
 
 from forge.gapmine import rank
-from forge.kb import SQLiteRegistry, f3_matrix
+from forge.kb import Registry, f3_matrix, registry_from_env
 
 
-def registry() -> SQLiteRegistry:
-    path = Path(os.environ.get("FORGE_REGISTRY_PATH", "data/registry.sqlite"))
-    return SQLiteRegistry(path)
+def registry() -> Registry:
+    return registry_from_env()
 
 
 def cycles() -> list[dict[str, Any]]:

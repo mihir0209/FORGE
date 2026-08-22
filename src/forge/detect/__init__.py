@@ -67,16 +67,22 @@ def trace_features(view: ObservedTraceView) -> dict[str, float]:
         # per-customer cash-out attempts (victim repeats; legit rarely >1/day)
         "cashout_pressure": min(max(cashouts_by_customer.values(), default=0) / 2.0, 1.0),
         "volume": min(len(payments) / 50.0, 1.0),
+        "unknown_peer_network": signals.get("unknown_peer_network", 0.0),
+        "media_liveness_anomaly": signals.get("media_liveness_anomaly", 0.0),
+        "transaction_during_call": signals.get("transaction_during_call", 0.0),
     }
 
 
 _RULE_WEIGHTS: Mapping[str, float] = {
-    "burst": 0.30,
-    "new_device": 0.15,
-    "refund_pressure": 0.25,
-    "off_hours_focus": 0.10,
-    "cashout_pressure": 0.15,
-    "volume": 0.05,
+    "burst": 0.20,
+    "new_device": 0.10,
+    "refund_pressure": 0.15,
+    "off_hours_focus": 0.05,
+    "cashout_pressure": 0.10,
+    "volume": 0.02,
+    "unknown_peer_network": 0.12,
+    "media_liveness_anomaly": 0.13,
+    "transaction_during_call": 0.13,
 }
 
 

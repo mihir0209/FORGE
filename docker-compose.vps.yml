@@ -1,0 +1,150 @@
+name: forge
+
+x-forge-env: &forge-env
+  INNGEST_DEV: ${INNGEST_DEV:-1}
+  INNGEST_BASE_URL: http://inngest:8288
+  INNGEST_CONNECT_GATEWAY: ws://inngest:8289/v0/connect
+  INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY:?set INNGEST_EVENT_KEY}
+  INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY:?set INNGEST_SIGNING_KEY}
+  FORGE_APP_VERSION: ${FORGE_APP_VERSION:?set FORGE_APP_VERSION}
+  FORGE_DATABASE_URL: postgresql://forge:${FORGE_DB_PASSWORD:?set FORGE_DB_PASSWORD}@postgres:5432/forge
+  S3_ENDPOINT_URL: http://minio:9000
+  S3_BUCKET: forge-artifacts
+  S3_REGION: us-east-1
+  S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+  S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
+  OPENAI_BASE_URL: ${OPENAI_CONTAINER_BASE_URL:-${OPENAI_BASE_URL:?set OPENAI_BASE_URL}}
+  FORGE_LLM_MODEL: ${FORGE_LLM_MODEL:-gpt-family}
+  FORGE_LIVE_LLM: "1"
+  FORGE_RUN_ID: ${FORGE_RUN_ID:?set FORGE_RUN_ID}
+  FORGE_RUN_DURATION_HOURS: ${FORGE_RUN_DURATION_HOURS:-96}
+  FORGE_STOP_AT: ${FORGE_STOP_AT:-}
+  SMTP_HOST: ${SMTP_HOST:?set SMTP_HOST}
+  SMTP_PORT: ${SMTP_PORT:-465}
+  SMTP_SECURITY: ${SMTP_SECURITY:-ssl}
+  SMTP_FROM: ${SMTP_FROM:?set SMTP_FROM}
+  SMTP_TO: ${SMTP_TO:?set SMTP_TO}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      FORGE_DB_PASSWORD: ${FORGE_DB_PASSWORD:?set FORGE_DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deploy/init-databases.sh:/docker-entrypoint-initdb.d/10-forge.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+    volumes: [minio-data:/data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  minio-init:
+    image: minio/mc:latest
+    restart: "no"
+    depends_on:
+      minio: { condition: service_healthy }
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
+        mc mb --ignore-existing local/forge-artifacts &&
+        mc version enable local/forge-artifacts
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+
+  inngest:
+    image: inngest/inngest:v1.19.3
+    restart: unless-stopped
+    command: ["inngest", "start"]
+    environment:
+      INNGEST_POSTGRES_URI: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/inngest
+      INNGEST_REDIS_URI: redis://redis:6379/0
+      INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY}
+      INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY}
+      INNGEST_QUEUE_WORKERS: "20"
+      INNGEST_EXPERIMENTAL_PROM_METRICS: "1"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    expose: ["8288", "8289"]
+    stop_grace_period: 10m
+
+  api:
+    build: .
+    image: forge:${FORGE_APP_VERSION}
+    restart: unless-stopped
+    init: true
+    environment:
+      <<: *forge-env
+      FORGE_INNGEST_MODE: connect
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+      inngest: { condition: service_started }
+    ports: ["8000:8000"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  worker:
+    image: forge:${FORGE_APP_VERSION}
+    restart: unless-stopped
+    init: true
+    command: ["python", "-m", "forge.pipeline.worker"]
+    environment:
+      <<: *forge-env
+      INNGEST_CONNECT_MAX_WORKER_CONCURRENCY: "1"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+      inngest: { condition: service_started }
+    stop_grace_period: 10m
+    deploy:
+      replicas: 5
+      resources:
+        limits:
+          memory: 2G
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

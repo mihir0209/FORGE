@@ -44,6 +44,8 @@ def load_incumbent() -> Detector:
         return RuleBaselineDetector()
     try:
         meta: dict[str, Any] = json.loads(_pointer().read_text())
+        if tuple(meta.get("feature_names", ())) != FEATURE_NAMES:
+            return RuleBaselineDetector()
         artifact = Path(str(meta["artifact_path"]))
         if not artifact.exists():
             return RuleBaselineDetector()
@@ -58,7 +60,11 @@ def install_candidate(artifact_path: str, candidate_id: str) -> None:
     tmp = _pointer().with_suffix(".tmp")
     tmp.write_text(
         json.dumps(
-            {"candidate_id": candidate_id, "artifact_path": artifact_path},
+            {
+                "candidate_id": candidate_id,
+                "artifact_path": artifact_path,
+                "feature_names": list(FEATURE_NAMES),
+            },
             sort_keys=True,
         )
     )

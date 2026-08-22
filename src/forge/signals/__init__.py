@@ -9,17 +9,23 @@ from __future__ import annotations
 from forge.signals._primitives import (
     FEATURE_NAMES,
     all_signals,
+    media_liveness_anomaly,
     new_device_then_payment,
     off_hours_activity,
     refund_chains,
+    transaction_during_call,
+    unknown_peer_network,
     velocity_bursts,
 )
 
 __all__ = [
     "FEATURE_NAMES",
     "all_signals",
+    "media_liveness_anomaly",
     "new_device_then_payment",
     "off_hours_activity",
     "refund_chains",
+    "transaction_during_call",
+    "unknown_peer_network",
     "velocity_bursts",
 ]
