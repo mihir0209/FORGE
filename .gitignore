@@ -13,3 +13,6 @@ __pycache__/
 
 # regenerable submission artifacts (sources live in .agent/)
 *.docx
+
+# secrets
+.env

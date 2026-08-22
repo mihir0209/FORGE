@@ -16,9 +16,7 @@ from forge.contracts.contracts import (
     WorldSeed,
 )
 from forge.cycle_runner import run_offline_cycle
-from forge.kb import SQLiteRegistry
 from forge.pipeline import stages
-from forge.redteam.fixtures import default_draft
 from forge.simulate import simulate
 from forge.storage import ensure_dirs, load_artifact
 
@@ -48,8 +46,11 @@ def _drive_chain(seed: int) -> dict[str, object]:
 
 
 def test_stage_chain_matches_offline_cycle(isolated_env: Path) -> None:
+    from forge.kb import InMemoryRegistry
+
+    # Isolate: pipeline chain mutates isolated_env, offline gets a fresh copy
     pipe = _drive_chain(42)
-    offline = run_offline_cycle(42, SQLiteRegistry(isolated_env), draft=default_draft())
+    offline = run_offline_cycle(42, InMemoryRegistry())
 
     p_proposed: EvStrategyProposed = pipe["proposed"]  # type: ignore[assignment]
     assert p_proposed.attack_family == offline.strategy.attack_family

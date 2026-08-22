@@ -11,6 +11,7 @@ from forge.contracts.contracts import (
     GateResult,
     ObservedTraceView,
 )
+from forge.detect.base import FEATURE_NAMES, Detector
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -66,15 +67,6 @@ def trace_features(view: ObservedTraceView) -> dict[str, float]:
         "cashout_pressure": min(max(cashouts_by_customer.values(), default=0) / 2.0, 1.0),
         "volume": min(len(payments) / 50.0, 1.0),
     }
-
-
-class Detector:
-    """Interface: score a feature row; identity for audit/provenance."""
-
-    detector_id: str
-
-    def score_features(self, features: Mapping[str, float]) -> float:
-        raise NotImplementedError
 
 
 _RULE_WEIGHTS: Mapping[str, float] = {
@@ -133,3 +125,6 @@ def gate_score(view: ObservedTraceView, detector: Detector) -> GateResult:
         latency_ms=0.4,  # measured rule path; benchmark harness refines at P4
         similarity_to_known=0.0,
     )
+
+
+__all__ = ["FEATURE_NAMES", "Detector", "RuleBaselineDetector", "gate_score", "trace_features"]

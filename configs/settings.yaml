@@ -12,8 +12,9 @@ pipeline:
   cycle_timeout_minutes: 30
 
 providers:
-  default: openai              # gpt-4o-mini cost tier / gpt-5-mini quality tier
+  default: openai              # OpenAI-compatible endpoint via OPENAI_BASE_URL
   fallback: anthropic          # claude-haiku-4-5 on rate-limit/refusal/schema errors
+  model: gpt-family            # served by the local gateway
   max_schema_retries: 2
 
 detect:

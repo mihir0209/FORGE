@@ -1,4 +1,9 @@
-"""forge.blueteam — trace-only investigation (blind by type, see ADR-0002)."""
+"""forge.blueteam — trace-only investigation (blind by type, see ADR-0002).
+
+Heuristic miners always run (deterministic, evidence-linked). When a reasoning
+client is provided, an LLM refines the verdict on top of those signals; any LLM
+failure degrades gracefully back to the heuristic assessment.
+"""
 
 from __future__ import annotations
 
@@ -37,6 +42,24 @@ def _heuristic_assessment(signals: list[Signal]) -> BlueAssessment:
     )
 
 
+def _assess_with_llm(
+    signals: list[Signal], reasoning: ReasoningClient
+) -> tuple[BlueAssessment, str]:
+    listing = (
+        "\n".join(
+            f"- {s.name} ({s.strength:.2f}): {s.description} refs={s.evidence_refs[:6]}"
+            for s in signals
+        )
+        or "- none"
+    )
+    assessment = reasoning.complete(
+        BlueAssessment,
+        "You are a blue-team fraud investigator. Assess ONLY what the events show.",
+        f"Signals observed:\n{listing}\n\nGive verdict/confidence/mitigations/gaps.",
+    )
+    return assessment, reasoning.name.split("+")[0]
+
+
 def _mitigations_for(signals: list[Signal]) -> list[str]:
     m: list[str] = []
     names = {s.name for s in signals}
@@ -56,24 +79,18 @@ def investigate(
     reasoning: ReasoningClient | None = None,
 ) -> BlueReport:
     signals = all_signals(view)
+    provider, model = "none", _INVESTIGATOR
 
     if reasoning is None:
         assessment = _heuristic_assessment(signals)
-        provider, model = "none", _INVESTIGATOR
     else:
-        listing = (
-            "\n".join(
-                f"- {s.name} ({s.strength:.2f}): {s.description} refs={s.evidence_refs[:6]}"
-                for s in signals
-            )
-            or "- none"
-        )
-        assessment = reasoning.complete(
-            BlueAssessment,
-            "You are a blue-team fraud investigator. Assess ONLY what the events show.",
-            f"Signals observed:\n{listing}\n\nGive verdict/confidence/mitigations/gaps.",
-        )
-        provider, model = reasoning.name, reasoning.name
+        try:
+            assessment, provider = _assess_with_llm(signals, reasoning)
+            model = reasoning.name
+        except Exception:
+            # degraded mode: deterministic floor keeps the loop alive
+            assessment = _heuristic_assessment(signals)
+            provider, model = "none", f"{_INVESTIGATOR}-degraded"
 
     known_ids = set(view.event_ids)
     safe_signals = [
@@ -89,9 +106,7 @@ def investigate(
     return BlueReport(
         investigator_id=_INVESTIGATOR if reasoning is None else f"{_INVESTIGATOR}+{provider}",
         signals=safe_signals,
-        motifs=[
-            # v1: motifs folded into signals; kept as contract surface
-        ],
+        motifs=[],
         mitigations=assessment.mitigations,
         confidence=assessment.confidence,
         verdict=assessment.verdict,

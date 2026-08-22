@@ -100,17 +100,27 @@ def _tactic_draft(slug: str, overrides: dict[str, Any]) -> DraftStrategy:
 
 
 def draft_for_tactic(tactic_slug: str) -> DraftStrategy:
-    """Tactic-keyed drafts: briefs from different F3 cells yield distinct families."""
-    if tactic_slug == "initial-access":
-        return _tactic_draft("initial-access", _ACCOUNT_TAKEOVER)
-    if tactic_slug == "stealth":
-        ato = dict(_ACCOUNT_TAKEOVER)
-        ato.update(
-            attack_family="stealthy_account_takeover",
-            evasion_hypothesis=(
+    """Each tactic slug yields a distinct fingerprint."""
+    special = {
+        "initial-access": _ACCOUNT_TAKEOVER,
+        "stealth": {
+            **_ACCOUNT_TAKEOVER,
+            "attack_family": "stealthy_account_takeover",
+            "evasion_hypothesis": (
                 "strictly 0-4h activity window; ticket sizes mimic utilities; "
                 "session counts kept low"
             ),
-        )
-        return _tactic_draft("stealth", ato)
-    return default_draft()
+        },
+    }
+    if tactic_slug in special:
+        return _tactic_draft(tactic_slug, special[tactic_slug])
+    # Generic: keep refund_abuse template but stamp it to the target tactic
+    # so fingerprint (which hashes family+f3+rail+channel+stages+sequence)
+    # varies per tactic even without hand-curated families.
+    return _tactic_draft(
+        tactic_slug,
+        {
+            "attack_family": tactic_slug.replace("-", "_") + "_abuse",
+            "fraud_objective": f"abuse {tactic_slug.replace('-', ' ')} for value extraction",
+        },
+    )

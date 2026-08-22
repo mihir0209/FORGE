@@ -44,6 +44,7 @@ class ProvidersCfg(BaseModel):
     model_config = ConfigDict(extra="forbid")
     default: str
     fallback: str
+    model: str = "gpt-family"
     max_schema_retries: int
 
 
@@ -60,8 +61,21 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def load_env_file() -> None:
+    """Parse repo-root .env into os.environ (no third-party dep). Idempotent."""
+    path = _repo_root() / ".env"
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip())
+
+
 @lru_cache(maxsize=1)
 def settings() -> Settings:
+    load_env_file()
     path = Path(os.environ.get("FORGE_CONFIG", _repo_root() / "configs" / "settings.yaml"))
     data = yaml.safe_load(path.read_text())
     return Settings.model_validate(data)

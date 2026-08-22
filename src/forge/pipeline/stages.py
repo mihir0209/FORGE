@@ -12,7 +12,10 @@ import os
 import zlib
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from forge.reasoning import ReasoningClient
 
 from forge.blueteam import investigate
 from forge.config import settings
@@ -35,13 +38,20 @@ from forge.contracts.contracts import (
     WorldSeed,
     ev_dict,
 )
-from forge.detect import RuleBaselineDetector, gate_score
+from forge.detect import gate_score
+from forge.detect.incumbent import load_incumbent
 from forge.gapmine import fallback_brief, rank
 from forge.ids import cycle_id_base, strategy_id_for
 from forge.kb import Registry, SQLiteRegistry, search
 from forge.redteam import compose_draft, novelty
 from forge.redteam.fixtures import draft_for_tactic
 from forge.simulate import simulate
+
+
+def _live_reasoning() -> ReasoningClient | None:
+    from forge.reasoning.live import default_client
+
+    return default_client()
 
 
 def _registry() -> Registry:
@@ -127,7 +137,10 @@ def stage_simulate(data: dict[str, Any]) -> dict[str, object]:
 def stage_investigate(data: dict[str, Any]) -> dict[str, object]:
     ev = EvTraceCompleted.model_validate(data)
     trace = SyntheticTrace.model_validate(load_artifact(ev.trace_ref))
-    report = investigate(trace.observed_view(), reasoning=None)
+    report = investigate(
+        trace.observed_view(),
+        reasoning=_live_reasoning(),  # None offline -> deterministic heuristics
+    )
     ref = save_report(ev.strategy_id, json.loads(report.model_dump_json()))
     return ev_dict(
         EvInvestigationCompleted(
@@ -145,7 +158,7 @@ def stage_investigate(data: dict[str, Any]) -> dict[str, object]:
 def stage_gate(data: dict[str, Any]) -> dict[str, object]:
     ev = EvInvestigationCompleted.model_validate(data)
     trace = SyntheticTrace.model_validate(load_artifact(ev.trace_ref))
-    gate = gate_score(trace.observed_view(), RuleBaselineDetector())
+    gate = gate_score(trace.observed_view(), load_incumbent())
     return ev_dict(
         EvGateScored(
             strategy_id=ev.strategy_id,
@@ -210,6 +223,63 @@ def save_trace(trace_id: str, payload: dict[str, Any]) -> str:
     from forge.storage import save_artifact
 
     return save_artifact("traces", trace_id, payload)
+
+
+def stage_build_dataset(data: dict[str, Any]) -> dict[str, object]:
+    """corpus.threshold_reached -> dataset built."""
+    from forge.detect.dataset import build_dataset as _build
+
+    # registry is the source of truth; seeds for negatives come from event or defaults
+    reg = _registry()
+    seed = int(data.get("seed", 0))
+    ref = _build(reg, n_negatives=80, dataset_seed=seed)
+    return ref.model_dump(mode="json")
+
+
+def stage_train(data: dict[str, Any]) -> dict[str, object]:
+    """DatasetRef -> CandidateReport."""
+    from forge.contracts.contracts import DatasetRef
+    from forge.detect.train import train_detector
+
+    ref = DatasetRef.model_validate(data)
+    report = train_detector(ref)
+    return report.model_dump(mode="json")
+
+
+def stage_evaluate(data: dict[str, Any]) -> dict[str, object]:
+    """CandidateReport -> PromotionVerdict."""
+    from forge.contracts.contracts import CandidateReport
+    from forge.detect.promotion import evaluate
+
+    report = CandidateReport.model_validate(data)
+    reg = _registry()
+    verdict = evaluate(report, reg)
+    return verdict.model_dump(mode="json")
+
+
+def stage_install(data: dict[str, Any]) -> dict[str, object]:
+    """PromotionVerdict (+ stashed report) -> install + promote/retain event."""
+    # data carries {verdict, report} from the finalize step's merged payload
+    from forge.contracts.contracts import CandidateReport, PromotionVerdict
+    from forge.detect.promotion import install_if_passed
+
+    verdict = PromotionVerdict.model_validate(data["verdict"])
+    report = CandidateReport.model_validate(data["report"])
+    installed = install_if_passed(report, verdict)
+    if installed:
+        from forge.contracts.contracts import EvModelPromoted
+
+        out: dict[str, object] = EvModelPromoted(
+            candidate_id=verdict.candidate_id, roc_auc=report.roc_auc
+        ).model_dump(mode="json")
+        out["promoted"] = True
+        return out
+    from forge.contracts.contracts import EvModelRetained
+
+    reason = "; ".join(verdict.notes) or "gates not all passed"
+    out = EvModelRetained(candidate_id=verdict.candidate_id, reason=reason).model_dump(mode="json")
+    out["promoted"] = False
+    return out
 
 
 def save_report(strategy_id: str, payload: dict[str, Any]) -> str:

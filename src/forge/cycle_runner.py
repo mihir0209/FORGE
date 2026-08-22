@@ -23,8 +23,8 @@ from forge.detect import RuleBaselineDetector, gate_score
 from forge.gapmine import fallback_brief, rank
 from forge.ids import cycle_id_base, strategy_id_for
 from forge.kb import Registry, search
-from forge.redteam import compose, compose_draft
-from forge.redteam.compose import novelty
+from forge.redteam import compose, compose_draft, novelty
+from forge.redteam.fixtures import draft_for_tactic
 from forge.simulate import simulate
 
 if TYPE_CHECKING:
@@ -54,6 +54,10 @@ def run_offline_cycle(
     hits = search(KBQuery(tactic=slug, technique_ids=brief.target_f3_cells, limit=8))
 
     provider, model = "scripted", "fixture"
+    # Offline mode picks fixture by gap brief's target tactic
+    if draft is None and reasoning is None:
+        tactic_hint = brief.suggested_family.removesuffix("_family")
+        draft = draft_for_tactic(tactic_hint)
     if draft is not None:
         spec = compose_draft(
             draft, strategy_id=strategy_id_for(seed), provider=provider, model=model

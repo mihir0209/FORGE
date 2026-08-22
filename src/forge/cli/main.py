@@ -12,6 +12,34 @@ from forge.kb import SQLiteRegistry
 from forge.redteam.fixtures import default_draft
 
 
+def _cmd_train(args: argparse.Namespace) -> int:
+    from pathlib import Path as _Path
+
+    from forge.detect.dataset import build_dataset
+    from forge.detect.promotion import evaluate, install_if_passed
+    from forge.detect.train import train_detector
+    from forge.kb import SQLiteRegistry
+
+    reg = SQLiteRegistry(_Path(args.db))
+    ref = build_dataset(reg, n_negatives=args.n_negatives)
+    report = train_detector(ref)
+    verdict = evaluate(report, reg)
+    ok = install_if_passed(report, verdict)
+    print(
+        json.dumps(
+            {
+                "candidate_id": report.candidate_id,
+                "roc_auc": round(report.roc_auc, 3),
+                "passed": verdict.passed,
+                "installed": ok,
+                "checks": verdict.checks,
+            },
+            indent=2,
+        )
+    )
+    return 0 if verdict.passed else 1
+
+
 def _cmd_cycle(args: argparse.Namespace) -> int:
     registry = SQLiteRegistry(Path(args.db))
     record = run_offline_cycle(
@@ -59,6 +87,11 @@ def main(argv: list[str] | None = None) -> int:
         help="use live LLM reasoning instead of the scripted offline fixture",
     )
     cyc.set_defaults(func=_cmd_cycle)
+
+    trn = sub.add_parser("train", help="run one training round from the current registry")
+    trn.add_argument("--db", default="data/registry.sqlite")
+    trn.add_argument("--n-negatives", type=int, default=80)
+    trn.set_defaults(func=_cmd_train)
 
     args = parser.parse_args(argv)
     try:

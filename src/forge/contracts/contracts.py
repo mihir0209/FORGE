@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def _now() -> datetime:
@@ -403,8 +403,29 @@ class DraftStrategy(Strict):
 
     fraud_objective: str
     attack_family: str
-    f3_tactic: str  # slug
-    f3_techniques: list[str] = Field(default_factory=list)
+    f3_tactic: str  # slug, e.g. "monetization" / "initial-access"
+    f3_techniques: list[str] = Field(default_factory=list)  # IDs like F1010, T1566
+
+    @field_validator("f3_tactic", mode="after")
+    @classmethod
+    def _tactic_exists(cls, v: str) -> str:
+        from forge.kb._f3 import f3_matrix
+
+        if f3_matrix().tactic_by_slug(v) is None:
+            raise ValueError(f"unknown F3 tactic slug '{v}'")
+        return v
+
+    @field_validator("f3_techniques", mode="after")
+    @classmethod
+    def _techniques_exist(cls, vs: list[str]) -> list[str]:
+        from forge.kb._f3 import f3_matrix
+
+        m = f3_matrix()
+        for tid in vs:
+            if m.technique(tid) is None:
+                raise ValueError(f"unknown F3 technique '{tid}'")
+        return vs
+
     rail: str
     channel: str
     lifecycle_stages: list[LifecycleStage] = Field(min_length=1)
@@ -450,6 +471,16 @@ class EvCycleAccepted(Strict):
 class EvCorpusThresholdReached(Strict):
     verified_count: int
     min_required: int
+
+
+class EvModelPromoted(Strict):
+    candidate_id: str
+    roc_auc: float
+
+
+class EvModelRetained(Strict):
+    candidate_id: str
+    reason: str
 
 
 def ev_dict(e: Strict) -> dict[str, object]:

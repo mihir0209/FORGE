@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from forge.reasoning.adapters import PydanticAIClient
 from forge.reasoning.base import (
     ProviderDown,
     ReasoningClient,
@@ -36,6 +37,7 @@ class ChainedReasoningClient:
 __all__ = [
     "ChainedReasoningClient",
     "ProviderDown",
+    "PydanticAIClient",
     "ReasoningClient",
     "ReasoningError",
     "RefusalError",

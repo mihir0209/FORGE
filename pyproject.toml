@@ -15,10 +15,11 @@ dependencies = [
     "networkx>=3.6.1,<4",
     "pyarrow>=18",
     "pandas>=2.2",
+    "lightgbm==4.7.0",
+    "scikit-learn>=1.9",
 ]
 
 [project.optional-dependencies]
-detect = ["lightgbm==4.7.0", "scikit-learn>=1.9"]
 analyst = ["trl>=0.19", "peft>=0.15", "bitsandbytes>=0.45"]
 
 [dependency-groups]

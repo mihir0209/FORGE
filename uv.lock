@@ -592,6 +592,7 @@ dependencies = [
     { name = "faker" },
     { name = "fastapi" },
     { name = "inngest" },
+    { name = "lightgbm" },
     { name = "networkx" },
     { name = "numpy" },
     { name = "pandas" },
@@ -599,6 +600,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-ai" },
     { name = "pyyaml" },
+    { name = "scikit-learn" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -607,10 +609,6 @@ analyst = [
     { name = "bitsandbytes" },
     { name = "peft" },
     { name = "trl" },
-]
-detect = [
-    { name = "lightgbm" },
-    { name = "scikit-learn" },
 ]
 
 [package.dev-dependencies]
@@ -627,7 +625,7 @@ requires-dist = [
     { name = "faker", specifier = ">=40.37,<41" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "inngest", specifier = "==0.5.19" },
-    { name = "lightgbm", marker = "extra == 'detect'", specifier = "==4.7.0" },
+    { name = "lightgbm", specifier = "==4.7.0" },
     { name = "networkx", specifier = ">=3.6.1,<4" },
     { name = "numpy", specifier = ">=2.2,<3" },
     { name = "pandas", specifier = ">=2.2" },
@@ -636,11 +634,11 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.11,<3" },
     { name = "pydantic-ai", specifier = ">=2.33,<2.34" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "scikit-learn", marker = "extra == 'detect'", specifier = ">=1.9" },
+    { name = "scikit-learn", specifier = ">=1.9" },
     { name = "trl", marker = "extra == 'analyst'", specifier = ">=0.19" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
-provides-extras = ["detect", "analyst"]
+provides-extras = ["analyst"]
 
 [package.metadata.requires-dev]
 dev = [
