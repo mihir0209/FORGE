@@ -44,7 +44,7 @@ class ProvidersCfg(BaseModel):
     model_config = ConfigDict(extra="forbid")
     default: str
     fallback: str
-    model: str = "gpt-family"
+    model: str = "mimo-v2.5"
     max_schema_retries: int
 
 

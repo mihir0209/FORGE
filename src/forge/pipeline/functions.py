@@ -175,6 +175,20 @@ async def train_round(ctx: inngest.Context) -> None:
     await ctx.step.send_event("emit_model_result", inngest.Event(name=event_name, data=result))
 
 
+@client.create_function(
+    fn_id="worker_probe",
+    trigger=inngest.TriggerEvent(event="worker.probe"),
+)
+async def worker_probe(ctx: inngest.Context) -> None:
+    result = await _run_step(
+        ctx.step, "worker_probe", stages.stage_worker_probe, dict(ctx.event.data)
+    )
+    await ctx.step.send_event(
+        "emit_worker_probe",
+        inngest.Event(name="worker.probe.completed", data=result),
+    )
+
+
 functions: list[object] = [
     gap_mine,
     cycle_compose,
@@ -184,4 +198,5 @@ functions: list[object] = [
     cycle_finalize,
     run_supervisor_tick,
     train_round,
+    worker_probe,
 ]

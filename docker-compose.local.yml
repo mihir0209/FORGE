@@ -1,0 +1,12 @@
+# Local Connect acceptance override. It keeps production signing semantics but
+# routes the model gateway to the host. For SDK Dev Serve testing, run
+# `INNGEST_DEV=1 npx inngest-cli dev --sdk-url http://localhost:8000/api/inngest`.
+services:
+  inngest:
+    ports: ["8288:8288"]
+  api:
+    environment:
+      INNGEST_DEV: "0"
+  worker:
+    environment:
+      INNGEST_DEV: "0"

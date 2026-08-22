@@ -80,7 +80,7 @@ def answer_chat(request: ChatRequest, registry: SQLiteRegistry) -> ChatResponse:
             uncertainty="LLM unavailable; deterministic case summary returned.",
         )
 
-    model = os.environ.get("FORGE_LLM_MODEL", "gpt-family")
+    model = os.environ.get("FORGE_LLM_MODEL", "mimo-v2.5")
     client = PydanticAIClient(f"openai:{model}")
     response = client.complete(
         ChatResponse,

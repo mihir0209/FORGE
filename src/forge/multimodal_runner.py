@@ -27,7 +27,7 @@ def multimodal_strategy(seed: int) -> StrategySpec:
         strategy_id=f"strategy-mm-{seed}",
         fraud_objective=(
             "use synthetic audio/video impersonation during a video call to induce "
-            "a sandbox UPI payment"
+            f"a sandbox UPI payment (run seed {seed})"
         ),
         attack_family="deepfake_video_call_payment",
         f3=F3Mapping(tactic="monetization", techniques=["F1010"]),

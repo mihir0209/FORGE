@@ -136,13 +136,15 @@ class PostgresRegistry(Registry):
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS forge_specs (
-                  strategy_id TEXT PRIMARY KEY,
-                  fingerprint TEXT NOT NULL UNIQUE,
+                  fingerprint TEXT PRIMARY KEY,
+                  strategy_id TEXT NOT NULL,
                   attack_family TEXT NOT NULL,
                   payload JSONB NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS ix_forge_specs_family
                   ON forge_specs(attack_family);
+                CREATE INDEX IF NOT EXISTS ix_forge_specs_strategy
+                  ON forge_specs(strategy_id);
                 CREATE TABLE IF NOT EXISTS forge_cycles (
                   sequence BIGINT GENERATED ALWAYS AS IDENTITY,
                   cycle_id TEXT PRIMARY KEY,
@@ -164,13 +166,14 @@ class PostgresRegistry(Registry):
 
         cur.execute(
             """
-                INSERT INTO forge_specs(strategy_id,fingerprint,attack_family,payload)
+                INSERT INTO forge_specs(fingerprint,strategy_id,attack_family,payload)
                 VALUES (%s,%s,%s,%s)
-                ON CONFLICT (strategy_id) DO UPDATE SET payload=EXCLUDED.payload
-                """,
+                ON CONFLICT (fingerprint) DO UPDATE
+                  SET payload=EXCLUDED.payload, strategy_id=EXCLUDED.strategy_id
+            """,
             (
-                spec.strategy_id,
                 spec.fingerprint(),
+                spec.strategy_id,
                 spec.attack_family,
                 Jsonb(spec.model_dump(mode="json")),
             ),
@@ -178,7 +181,10 @@ class PostgresRegistry(Registry):
 
     def similar(self, fingerprint: str) -> list[StrategySpec]:
         with self._conn.cursor() as cur:
-            cur.execute("SELECT payload FROM forge_specs WHERE fingerprint=%s", (fingerprint,))
+            cur.execute(
+                "SELECT payload FROM forge_specs WHERE fingerprint=%s",
+                (fingerprint,),
+            )
             return [StrategySpec.model_validate(row[0]) for row in cur.fetchall()]
 
     def same_family_count(self, attack_family: str) -> int:

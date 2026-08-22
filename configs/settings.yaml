@@ -14,7 +14,7 @@ pipeline:
 providers:
   default: openai              # OpenAI-compatible endpoint via OPENAI_BASE_URL
   fallback: anthropic          # claude-haiku-4-5 on rate-limit/refusal/schema errors
-  model: gpt-family            # served by the local gateway
+  model: mimo-v2.5             # cheaper development route; override on VPS if needed
   max_schema_retries: 2
 
 detect:

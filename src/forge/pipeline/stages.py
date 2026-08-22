@@ -67,6 +67,10 @@ def _pick_brief(reg: Registry, brief_id: str | None) -> GapBrief:
     return briefs[0] if briefs else fallback_brief()
 
 
+def _cycle_key(data: dict[str, Any]) -> str:
+    return f"{data.get('scenario') or data.get('brief_id') or 'auto'}:{data.get('seed')}"
+
+
 # ------------------------------------------------------------------- stages
 
 
@@ -91,6 +95,7 @@ def stage_admit_cycle(data: dict[str, Any]) -> bool:
     state = supervisor.start()
     before_alert = state.queue_alert_open
     allowed = supervisor.admit(
+        cycle_key=_cycle_key(data),
         queue_depth=int(data.get("queue_depth", state.queued_cycles)),
         storage_reservation=int(data.get("storage_reservation", 25 * 1024**2)),
     )
@@ -111,14 +116,22 @@ def stage_cycle_started(_: dict[str, Any]) -> dict[str, object]:
     from forge.operations.runtime import supervisor_from_env
 
     supervisor = supervisor_from_env()
-    return supervisor.cycle_started().model_dump(mode="json") if supervisor is not None else {}
+    return (
+        supervisor.cycle_started(_cycle_key(_)).model_dump(mode="json")
+        if supervisor is not None
+        else {}
+    )
 
 
 def stage_release_admission(_: dict[str, Any]) -> dict[str, object]:
     from forge.operations.runtime import supervisor_from_env
 
     supervisor = supervisor_from_env()
-    return supervisor.release_admission().model_dump(mode="json") if supervisor is not None else {}
+    return (
+        supervisor.release_admission(_cycle_key(_)).model_dump(mode="json")
+        if supervisor is not None
+        else {}
+    )
 
 
 def stage_compose(data: dict[str, Any]) -> dict[str, object] | None:
@@ -168,7 +181,7 @@ def stage_multimodal_cycle(data: dict[str, Any]) -> dict[str, object]:
     )
     supervisor = supervisor_from_env()
     if supervisor is not None:
-        supervisor.cycle_completed()
+        supervisor.cycle_completed(cycle_key=_cycle_key(data))
     return ev_dict(
         EvCycleAccepted(
             cycle_id=record.cycle_id,
@@ -258,7 +271,7 @@ def stage_finalize(data: dict[str, Any]) -> dict[str, object]:
 
     supervisor = supervisor_from_env()
     if supervisor is not None:
-        supervisor.cycle_completed()
+        supervisor.cycle_completed(cycle_key=_cycle_key(data))
 
     out: dict[str, object] = {
         "accepted": ev_dict(
@@ -413,6 +426,38 @@ def stage_supervisor_tick(_: dict[str, Any] | None = None) -> dict[str, object]:
         dry_run=os.environ.get("SMTP_DRY_RUN", "0") == "1",
     )
     return manifest.model_dump(mode="json")
+
+
+def stage_worker_probe(data: dict[str, Any]) -> dict[str, object]:
+    """Five-worker acceptance barrier: persist the worker instance per probe."""
+    import socket
+    import time
+
+    probe_id = str(data["probe_id"])
+    worker_id = os.environ.get("HOSTNAME", socket.gethostname())
+    time.sleep(float(data.get("hold_seconds", 3)))
+    dsn = os.environ.get("FORGE_DATABASE_URL")
+    if dsn:
+        import psycopg
+
+        with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS forge_worker_probe (
+                  probe_id TEXT PRIMARY KEY,
+                  worker_id TEXT NOT NULL,
+                  completed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+            cur.execute(
+                """
+                INSERT INTO forge_worker_probe(probe_id,worker_id)
+                VALUES (%s,%s) ON CONFLICT (probe_id) DO NOTHING
+                """,
+                (probe_id, worker_id),
+            )
+    return {"probe_id": probe_id, "worker_id": worker_id}
 
 
 def save_report(strategy_id: str, payload: dict[str, Any]) -> str:

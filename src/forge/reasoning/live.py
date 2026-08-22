@@ -23,7 +23,7 @@ def default_client() -> ReasoningClient | None:
         return None
     if not os.environ.get("OPENAI_API_KEY"):
         return None
-    model = os.environ.get("FORGE_LLM_MODEL", "gpt-family")
+    model = os.environ.get("FORGE_LLM_MODEL", "mimo-v2.5")
     clients: list[PydanticAIClient] = [PydanticAIClient(f"openai:{model}")]
     if os.environ.get("ANTHROPIC_API_KEY"):
         clients.append(PydanticAIClient("anthropic:claude-haiku-4-5"))

@@ -116,10 +116,17 @@ class RunSupervisor:
         return self._save(state)
 
     def admit(
-        self, *, queue_depth: int, storage_reservation: int, now: datetime | None = None
+        self,
+        *,
+        cycle_key: str = "anonymous",
+        queue_depth: int,
+        storage_reservation: int,
+        now: datetime | None = None,
     ) -> bool:
         now = now or datetime.now(UTC)
         state = self.load_required()
+        if cycle_key in state.admitted_cycle_ids or cycle_key in state.completed_cycle_ids:
+            return True
         queue_ratio = queue_depth / self.config.queue_capacity
         allowed = (
             state.state == RunState.RUNNING
@@ -136,6 +143,7 @@ class RunSupervisor:
                         "admitted_cycles": state.admitted_cycles + 1,
                         "queued_cycles": state.queued_cycles + 1,
                         "storage_bytes": state.storage_bytes + storage_reservation,
+                        "admitted_cycle_ids": [*state.admitted_cycle_ids, cycle_key],
                     }
                 )
             )
@@ -145,19 +153,22 @@ class RunSupervisor:
             )
         return allowed
 
-    def cycle_started(self) -> RunSupervisorState:
+    def cycle_started(self, cycle_key: str = "anonymous") -> RunSupervisorState:
         state = self.load_required()
+        if cycle_key in state.active_cycle_ids or cycle_key in state.completed_cycle_ids:
+            return state
         return self._save(
             state.model_copy(
                 update={
                     "version": state.version + 1,
                     "queued_cycles": max(0, state.queued_cycles - 1),
                     "active_cycles": state.active_cycles + 1,
+                    "active_cycle_ids": [*state.active_cycle_ids, cycle_key],
                 }
             )
         )
 
-    def release_admission(self) -> RunSupervisorState:
+    def release_admission(self, cycle_key: str = "anonymous") -> RunSupervisorState:
         """Release a reserved slot when compose terminates (e.g. duplicate)."""
         state = self.load_required()
         return self._save(
@@ -165,18 +176,27 @@ class RunSupervisor:
                 update={
                     "version": state.version + 1,
                     "queued_cycles": max(0, state.queued_cycles - 1),
+                    "admitted_cycle_ids": [
+                        item for item in state.admitted_cycle_ids if item != cycle_key
+                    ],
                 }
             )
         )
 
-    def cycle_completed(self, actual_storage_bytes: int = 0) -> RunSupervisorState:
+    def cycle_completed(
+        self, actual_storage_bytes: int = 0, cycle_key: str = "anonymous"
+    ) -> RunSupervisorState:
         state = self.load_required()
+        if cycle_key in state.completed_cycle_ids:
+            return state
         next_state = state.model_copy(
             update={
                 "version": state.version + 1,
                 "active_cycles": max(0, state.active_cycles - 1),
                 "completed_cycles": state.completed_cycles + 1,
                 "storage_bytes": max(state.storage_bytes, actual_storage_bytes),
+                "active_cycle_ids": [item for item in state.active_cycle_ids if item != cycle_key],
+                "completed_cycle_ids": [*state.completed_cycle_ids, cycle_key],
             }
         )
         if next_state.completed_cycles >= self.config.max_cycles:

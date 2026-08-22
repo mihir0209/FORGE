@@ -467,6 +467,9 @@ class RunSupervisorState(Strict):
     queued_cycles: int = 0
     storage_bytes: int = 0
     queue_alert_open: bool = False
+    admitted_cycle_ids: list[str] = Field(default_factory=list)
+    active_cycle_ids: list[str] = Field(default_factory=list)
+    completed_cycle_ids: list[str] = Field(default_factory=list)
     terminal_manifest_ref: str | None = None
     terminal_manifest_sha256: str | None = None
 

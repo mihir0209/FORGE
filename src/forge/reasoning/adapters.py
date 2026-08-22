@@ -6,12 +6,15 @@ durability owner. Lazy imports keep `forge.reasoning` importable without keys.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ValidationError
 from pydantic_core import ValidationError as CoreValidationError
 
 from forge.reasoning.base import ProviderDown, RefusalError, SchemaViolation
+
+if TYPE_CHECKING:
+    from pydantic_ai.models import Model
 
 _RETRIES = 2
 
@@ -19,6 +22,16 @@ _RETRIES = 2
 class PydanticAIClient:
     def __init__(self, model: str) -> None:
         self._model = model
+        self._agent_model: Model[Any] | str = model
+        if model.startswith("openai:"):
+            # OpenAI-compatible gateways frequently implement Chat Completions
+            # but not the newer Responses API. Force the compatible adapter.
+            from pydantic_ai.models.openai import OpenAIChatModel
+            from pydantic_ai.providers.openai import OpenAIProvider
+
+            self._agent_model = OpenAIChatModel(
+                model.removeprefix("openai:"), provider=OpenAIProvider()
+            )
 
     @property
     def name(self) -> str:
@@ -29,7 +42,7 @@ class PydanticAIClient:
         from pydantic_ai.exceptions import UnexpectedModelBehavior
 
         agent = Agent(
-            self._model,
+            self._agent_model,
             output_type=schema,
             system_prompt=system,
             retries=_RETRIES,

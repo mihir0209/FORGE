@@ -7,7 +7,9 @@ x-forge-env: &forge-env
   INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY:?set INNGEST_EVENT_KEY}
   INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY:?set INNGEST_SIGNING_KEY}
   FORGE_APP_VERSION: ${FORGE_APP_VERSION:?set FORGE_APP_VERSION}
-  FORGE_DATABASE_URL: postgresql://forge:${FORGE_DB_PASSWORD:?set FORGE_DB_PASSWORD}@postgres:5432/forge
+  FORGE_CONFIG: /app/configs/settings.yaml
+  FORGE_VENDOR_DIR: /app/vendor
+  FORGE_DATABASE_URL: postgresql://forge:${FORGE_DB_PASSWORD:?set FORGE_DB_PASSWORD}@postgres:5432/forge?sslmode=disable
   S3_ENDPOINT_URL: http://minio:9000
   S3_BUCKET: forge-artifacts
   S3_REGION: us-east-1
@@ -15,7 +17,7 @@ x-forge-env: &forge-env
   S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
   OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
   OPENAI_BASE_URL: ${OPENAI_CONTAINER_BASE_URL:-${OPENAI_BASE_URL:?set OPENAI_BASE_URL}}
-  FORGE_LLM_MODEL: ${FORGE_LLM_MODEL:-gpt-family}
+  FORGE_LLM_MODEL: ${FORGE_LLM_MODEL:-mimo-v2.5}
   FORGE_LIVE_LLM: "1"
   FORGE_RUN_ID: ${FORGE_RUN_ID:?set FORGE_RUN_ID}
   FORGE_RUN_DURATION_HOURS: ${FORGE_RUN_DURATION_HOURS:-96}
@@ -90,7 +92,7 @@ services:
     restart: unless-stopped
     command: ["inngest", "start"]
     environment:
-      INNGEST_POSTGRES_URI: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/inngest
+      INNGEST_POSTGRES_URI: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/inngest?sslmode=disable
       INNGEST_REDIS_URI: redis://redis:6379/0
       INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY}
       INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY}
