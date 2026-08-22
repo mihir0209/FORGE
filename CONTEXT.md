@@ -17,6 +17,7 @@ Mastercard Innovation Challenge @ GFF 2026 — AI Defense Lab for Payment Securi
 | **WorldSeed** | Master seed + world params; derives every RNG deterministically. |
 | **Trace** | Ordered, labeled events from one simulation run; ground truth attached. |
 | **ObservedTraceView** | The trace as defenders may see it — ground-truth fields nulled by construction (`trace.observed_view()` is the only constructor). |
+| **Signal** | Typed indicator (name, evidence_refs, strength ∈ [0,1]) derived from an ObservedTraceView by a signal primitive; single definition lives in `forge.signals` and is consumed by both blue-team verdicts and detector features. |
 | **BlueReport** | Blue team's structured verdict: signals, evidence_refs, motifs, mitigations, confidence, verdict ∈ {defeated, partial, missed}, uncovered_gaps. |
 | **GateResult** | Incumbent detector's score/action/reason codes + coverage ∈ {covered, partial, blind_spot}. |
 | **CycleRecord** | Immutable aggregate of one full adversarial cycle + provenance. |

@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Any
 import joblib  # type: ignore[import-untyped]
 
 from forge.detect import RuleBaselineDetector
-from forge.detect.base import FEATURE_NAMES, Detector
+from forge.detect.base import Detector
+from forge.signals import FEATURE_NAMES
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

@@ -23,7 +23,7 @@ from sklearn.metrics import (
 
 from forge.config import settings
 from forge.contracts.contracts import CandidateReport
-from forge.detect.incumbent import FEATURE_NAMES
+from forge.signals import FEATURE_NAMES
 
 if TYPE_CHECKING:
     from sklearn.base import BaseEstimator

@@ -10,7 +10,8 @@ import pandas as pd
 
 from forge.config import settings
 from forge.contracts.contracts import CandidateReport, PromotionVerdict, WorldSeed
-from forge.detect.incumbent import FEATURE_NAMES, load_incumbent
+from forge.detect.incumbent import load_incumbent
+from forge.signals import FEATURE_NAMES
 from forge.simulate import build_legit_trace
 
 if TYPE_CHECKING:
@@ -18,8 +19,9 @@ if TYPE_CHECKING:
 
 
 def _control_fp_rate(candidate: CandidateReport, n_controls: int = 20) -> float:
-    import joblib
     from pathlib import Path
+
+    import joblib
 
     if not Path(candidate.artifact_path).exists():
         return 1.0

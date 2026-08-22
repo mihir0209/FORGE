@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from forge.blueteam._heuristics import all_signals
 from forge.contracts.contracts import (
     BlueAssessment,
     BlueReport,
@@ -18,6 +17,7 @@ from forge.contracts.contracts import (
     Signal,
     Verdict,
 )
+from forge.signals import all_signals
 
 if TYPE_CHECKING:
     from forge.reasoning import ReasoningClient

@@ -1,4 +1,8 @@
-"""Deterministic heuristic miners over ObservedTraceView (blind by type)."""
+"""Signal primitives — single definition of every heuristic.
+
+`blueteam` builds verdicts from these; `detect` builds tabular features from the
+same objects. No second copy of BURST_WINDOW, BURST_COUNT, or evidence logic.
+"""
 
 from __future__ import annotations
 
@@ -8,8 +12,20 @@ from datetime import timedelta
 
 from forge.contracts.contracts import ObservedTraceView, Signal, TraceEvent
 
+# ------------------------------------------------------------------ constants
 _BURST_WINDOW = timedelta(minutes=30)
 _BURST_COUNT = 4  # payments within window that constitute a burst
+
+# Canonical feature list derived from these primitives.
+# `detect` must not hand-maintain a second copy.
+FEATURE_NAMES: tuple[str, ...] = (
+    "burst",
+    "new_device",
+    "refund_pressure",
+    "off_hours_focus",
+    "cashout_pressure",
+    "volume",
+)
 
 
 def _payments(view: ObservedTraceView) -> list[TraceEvent]:

@@ -12,7 +12,7 @@ import pandas as pd
 
 from forge.contracts.contracts import DatasetRef, WorldSeed
 from forge.detect import trace_features
-from forge.detect.base import FEATURE_NAMES  # tight coupling, deliberate
+from forge.signals import FEATURE_NAMES  # tight coupling, deliberate
 from forge.simulate import build_legit_trace, simulate
 
 if TYPE_CHECKING:

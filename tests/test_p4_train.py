@@ -93,7 +93,9 @@ def test_promotion_evaluates_and_installs(tmp_path: Path, monkeypatch: pytest.Mo
     )
 
 
-def test_promotion_fails_when_candidate_is_trivial(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_promotion_fails_when_candidate_is_trivial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A degenerate candidate (e.g. all-zero predictions) should not promote."""
     from forge.contracts.contracts import CandidateReport, DatasetRef
     from forge.detect.promotion import evaluate

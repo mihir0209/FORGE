@@ -11,7 +11,8 @@ from forge.contracts.contracts import (
     GateResult,
     ObservedTraceView,
 )
-from forge.detect.base import FEATURE_NAMES, Detector
+from forge.detect.base import Detector
+from forge.signals import FEATURE_NAMES
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -25,7 +26,7 @@ def trace_features(view: ObservedTraceView) -> dict[str, float]:
     """
     from collections import defaultdict
 
-    from forge.blueteam._heuristics import all_signals
+    from forge.signals import all_signals
 
     events = view.events
     payments = [e for e in events if e.kind == "payment"]
