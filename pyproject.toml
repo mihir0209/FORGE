@@ -24,6 +24,9 @@ analyst = ["trl>=0.19", "peft>=0.15", "bitsandbytes>=0.45"]
 [dependency-groups]
 dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.9", "pyright>=1.1.390"]
 
+[project.scripts]
+forge = "forge.cli.main:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

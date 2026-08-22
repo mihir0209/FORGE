@@ -1,0 +1,123 @@
+"""One synchronous adversarial cycle — the seam composition the pipeline adapts.
+
+Business logic only: no inngest import (architecture invariant #1). The Inngest
+functions call these same stage seams; this runner exists for offline/G1 mode,
+the CLI, and judge-facing replay.
+"""
+
+from __future__ import annotations
+
+from hashlib import sha256
+from typing import TYPE_CHECKING
+
+from forge.blueteam import investigate
+from forge.contracts.contracts import (
+    CycleRecord,
+    DraftStrategy,
+    GapBrief,
+    KBQuery,
+    NoveltyVerdict,
+    WorldSeed,
+)
+from forge.detect import RuleBaselineDetector, gate_score
+from forge.gapmine import rank
+from forge.kb import Registry, f3_matrix, search
+from forge.redteam import compose, compose_draft
+from forge.redteam.compose import novelty
+from forge.simulate import simulate
+
+if TYPE_CHECKING:
+    from forge.reasoning import ReasoningClient
+
+
+def run_offline_cycle(
+    seed: int,
+    registry: Registry,
+    *,
+    draft: DraftStrategy | None = None,
+    reasoning: ReasoningClient | None = None,
+    n_days: int = 14,
+    n_customers: int = 400,
+    n_merchants: int = 60,
+) -> CycleRecord:
+    """Gap brief → strategy → simulate → blind investigate → gate → record."""
+    if reasoning is not None and draft is not None:
+        raise ValueError("pass either a live reasoning client or a scripted draft")
+
+    world_seed = WorldSeed(master_seed=seed)
+
+    briefs = rank(registry)
+    brief = briefs[0] if briefs else _fallback_brief()
+    slug = _slug_of(brief)
+
+    hits = search(KBQuery(tactic=slug, technique_ids=brief.target_f3_cells, limit=8))
+
+    provider, model = "scripted", "fixture"
+    if draft is not None:
+        spec = compose_draft(draft, strategy_id=_strategy_id(seed), provider=provider, model=model)
+    else:
+        assert reasoning is not None
+        provider = reasoning.name.split("+")[0].split(":")[0] or reasoning.name
+        model = reasoning.name
+        spec = compose(
+            brief,
+            hits,
+            reasoning,
+            strategy_id=_strategy_id(seed),
+            provider=provider,
+            model=model,
+        )
+
+    verdict: NoveltyVerdict = novelty(spec, registry)
+
+    result = simulate(
+        spec,
+        world_seed,
+        n_days=n_days,
+        n_customers=n_customers,
+        n_merchants=n_merchants,
+    )
+    view = result.trace.observed_view()
+
+    report = investigate(view, reasoning=None if reasoning is None else reasoning)
+    gate = gate_score(view, RuleBaselineDetector())
+
+    accepted = verdict.novel and gate.coverage.value != "covered"
+    ordinal = len(registry.cycles()) + 1  # deterministic, unique per run order
+    record = CycleRecord(
+        cycle_id=f"{_cycle_id(spec.strategy_id, seed)}{ordinal:04d}",
+        run_id=f"offline-{seed}",
+        strategy=spec,
+        trace_ref=result.trace.trace_id,
+        blue_report=report,
+        gate_result=gate,
+        accepted=accepted,
+    )
+    registry.record_cycle(record)
+    return record
+
+
+def _strategy_id(seed: int) -> str:
+    return f"s_off_{sha256(str(seed).encode()).hexdigest()[:10]}"
+
+
+def _cycle_id(strategy_id: str, seed: int) -> str:
+    return f"cy_{sha256(f'{strategy_id}:{seed}'.encode()).hexdigest()[:12]}"
+
+
+def _slug_of(brief: GapBrief) -> str:
+    family = brief.suggested_family
+    return family.removesuffix("_family")
+
+
+def _fallback_brief() -> GapBrief:
+    matrix = f3_matrix()
+    tac = matrix.tactics[0]
+    return GapBrief(
+        brief_id="gap_default",
+        objective=f"first coverage for {tac.name}",
+        target_f3_cells=[],
+        suggested_family=f"{tac.slug}_family",
+        priority=0.5,
+        rationale="registry empty",
+    )

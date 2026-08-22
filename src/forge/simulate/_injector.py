@@ -275,7 +275,7 @@ class AttackInjector:
             else (4.0 if any(k in text for k in _PAY_LARGE) else 1.0)
         )
         burst = any(k in text for k in _BURST)
-        count = int(self._rng.integers(3, 6)) if burst else 1
+        count = int(self._rng.integers(4, 7)) if burst else 1
 
         merchant = self._affinity_merchant(victim)
         base_hour = self._hour(off_hours, merchant.category)

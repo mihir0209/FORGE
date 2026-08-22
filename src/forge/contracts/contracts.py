@@ -327,3 +327,94 @@ class EvGateScored(Strict):
     cycle_id: str
     strategy_id: str
     coverage: Coverage
+
+
+# ---------------------------------------------------------------------------
+# Knowledge base (P2)
+# ---------------------------------------------------------------------------
+
+
+class F3Tactic(Strict):
+    tactic_id: str  # TA0043 / FA0001 …
+    name: str
+    slug: str  # x_mitre_shortname, e.g. "reconnaissance"
+
+
+class F3Technique(Strict):
+    technique_id: str  # F1005 / T1566 …
+    name: str
+    tactic: str  # slug join via kill_chain_phases
+    fraud_native: bool  # True for F1XXX-series
+
+
+class KBQuery(Strict):
+    tactic: str | None = None
+    technique_ids: list[str] = Field(default_factory=list)
+    family: str | None = None
+    limit: int = 8
+
+
+class KBHit(Strict):
+    source: str  # "f3" | "skill" | "registry"
+    ref: str  # technique id / skill name / strategy id
+    title: str
+    detail: str = ""
+    score: float = 0.0
+
+
+class SkillRef(Strict):
+    name: str
+    domain: str
+    techniques: list[str] = Field(default_factory=list)
+    tactics: list[str] = Field(default_factory=list)
+
+
+class StrategyRef(Strict):
+    strategy_id: str
+    fingerprint: str
+    attack_family: str
+
+
+class NoveltyVerdict(Strict):
+    novel: bool
+    reason: str
+    exact_duplicate: bool = False
+    same_family_count: int = 0
+
+
+# ---------------------------------------------------------------------------
+# LLM-facing drafts (P2) — what the models emit before server-side enrichment
+# ---------------------------------------------------------------------------
+
+
+class DraftStrategy(Strict):
+    """Red team LLM output; compose() turns this into a full StrategySpec."""
+
+    fraud_objective: str
+    attack_family: str
+    f3_tactic: str  # slug
+    f3_techniques: list[str] = Field(default_factory=list)
+    rail: str
+    channel: str
+    lifecycle_stages: list[LifecycleStage] = Field(min_length=1)
+    behavioral_sequence: list[str] = Field(min_length=1)
+    entities: dict[str, int] = Field(default_factory=dict)
+    genai_leverage: str
+    evasion_hypothesis: str = ""
+    expected_signals: list[str] = Field(default_factory=list)
+    novelty_rationale: str
+
+
+class SignalDraft(Strict):
+    name: str
+    description: str
+    strength: float = Field(ge=0.0, le=1.0)
+
+
+class BlueAssessment(Strict):
+    """Blue team LLM output layered on deterministic heuristic signals."""
+
+    verdict: Verdict
+    confidence: float = Field(ge=0.0, le=1.0)
+    mitigations: list[str] = Field(default_factory=list)
+    uncovered_gaps: list[str] = Field(default_factory=list)
