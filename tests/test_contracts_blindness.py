@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from forge.contracts.contracts import (
     ActorKind,
+    EvidenceScope,
     F3Mapping,
     FidelityReport,
     GroundTruth,
@@ -69,6 +70,21 @@ def test_original_trace_is_untouched_by_view_construction() -> None:
     _ = t.observed_view()
     assert t.events[1].is_attack_step is True
     assert t.events[1].attack_stage == LifecycleStage.PAYMENT
+
+
+def test_observed_view_drops_internal_events() -> None:
+    trace = _trace()
+    internal = _event(2).model_copy(update={"evidence_scope": EvidenceScope.INTERNAL})
+    filtered = trace.model_copy(update={"events": [*trace.events, internal]}).observed_view()
+    assert "e2" not in filtered.event_ids
+
+
+def test_observed_view_rejects_internal_scope() -> None:
+    with pytest.raises(ValidationError):
+        ObservedTraceView(
+            trace_id="t",
+            events=[_event(0).model_copy(update={"evidence_scope": EvidenceScope.INTERNAL})],
+        )
 
 
 def _spec(**over: object) -> StrategySpec:

@@ -68,8 +68,8 @@ def train_detector(
     base.fit(
         X_train,
         y_train,
-        eval_X=X_test,
-        eval_y=y_test,
+        eval_X=X_calib,
+        eval_y=y_calib,
         callbacks=[lgb.early_stopping(20, verbose=False)],
     )
 
@@ -123,6 +123,7 @@ def train_detector(
         p50_latency_ms=p50,
         p95_latency_ms=p95,
         artifact_path=str(artifact),
+        evaluation_protocol=dataset.split_protocol,
     )
     artifact.with_suffix(".json").write_text(report.model_dump_json(indent=2))
     return report

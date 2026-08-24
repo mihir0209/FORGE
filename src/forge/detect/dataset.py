@@ -13,21 +13,12 @@ import pandas as pd
 from forge.contracts.contracts import DatasetRef, WorldSeed
 from forge.detect import trace_features
 from forge.signals import FEATURE_NAMES  # tight coupling, deliberate
-from forge.simulate import build_legit_trace, simulate
+from forge.simulate import build_legit_trace
 
 if TYPE_CHECKING:
     from forge.kb import Registry
 
 DATASETS_ROOT = Path("data/datasets")
-
-
-def _parse_seed(run_id: str | None) -> int:
-    if run_id and "-" in run_id:
-        try:
-            return int(run_id.split("-")[-1])
-        except ValueError:
-            pass
-    return abs(hash(run_id or "")) % 10_000
 
 
 def build_dataset(
@@ -45,15 +36,15 @@ def build_dataset(
 
     rows: list[dict[str, float | int]] = []
 
-    # positives — every cycle's trace (per-seed RNG gives trace-level diversity)
+    # Only exact feature vectors scored during accepted cycles belong in the
+    # current schema. Legacy cycles must be replayed and migrated explicitly.
     for cycle in registry.cycles():
-        seed = _parse_seed(cycle.run_id)
-        trace = simulate(cycle.strategy, WorldSeed(master_seed=seed)).trace
-        feats = trace_features(trace.observed_view())
-        rows.append({**{k: float(v) for k, v in feats.items()}, "label": 1})
+        if set(cycle.detector_features) == set(FEATURE_NAMES):
+            feats = cycle.detector_features
+            rows.append({**{k: float(v) for k, v in feats.items()}, "label": 1})
 
     if not rows:
-        raise ValueError("no attack cycles in registry — run forge cycle first")
+        raise ValueError("no current-schema attack cycles in registry — run forge app-scam-cycle first")
 
     # negatives — balanced-ish
     base = 10_000 + dataset_seed * 1_000

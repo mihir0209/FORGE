@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from forge.actor_sandbox import ActorSandbox, SandboxResult, deepfake_payment_plan
+from forge.actor_sandbox import ActorSandbox, SandboxResult, ai_assisted_app_scam_plan
 from forge.contracts.contracts import ActionPlan, StrategySpec, WorldSeed
 
 if TYPE_CHECKING:
@@ -13,7 +13,8 @@ if TYPE_CHECKING:
 _SYSTEM = """You are a synthetic red-team actor inside FORGE's non-routable sandbox.
 Produce an ActionPlan using only the declared ToolKind values. All identities,
 communications and payments are synthetic. Do not target real people or systems.
-Actions must be dependency ordered and end with call.end when a call is started."""
+Preparation tools run off-site and are hidden from defenders. Bank-session actions
+must expose only evidence realistically available to the bank or payment network."""
 
 
 def plan_strategy(
@@ -22,7 +23,7 @@ def plan_strategy(
     reasoning: ReasoningClient | None = None,
 ) -> ActionPlan:
     if reasoning is None:
-        return deepfake_payment_plan(strategy.strategy_id, cycle_id)
+        return ai_assisted_app_scam_plan(strategy.strategy_id, cycle_id)
     return reasoning.complete(
         ActionPlan,
         _SYSTEM,

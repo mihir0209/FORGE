@@ -19,7 +19,7 @@ from forge.contracts.contracts import (
     NoveltyVerdict,
     WorldSeed,
 )
-from forge.detect import RuleBaselineDetector, gate_score
+from forge.detect import RuleBaselineDetector, gate_score, trace_features
 from forge.gapmine import fallback_brief, rank
 from forge.ids import cycle_id_base, strategy_id_for
 from forge.kb import Registry, search
@@ -98,6 +98,7 @@ def run_offline_cycle(
         trace_ref=result.trace.trace_id,
         blue_report=report,
         gate_result=gate,
+        detector_features=trace_features(view),
         accepted=accepted,
     )
     registry.record_cycle(record)

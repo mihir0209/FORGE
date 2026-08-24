@@ -25,9 +25,12 @@ FEATURE_NAMES: tuple[str, ...] = (
     "off_hours_focus",
     "cashout_pressure",
     "volume",
-    "unknown_peer_network",
-    "media_liveness_anomaly",
-    "transaction_during_call",
+    "first_time_payee",
+    "behavioral_coaching_risk",
+    "beneficiary_network_risk",
+    "warning_override",
+    "balance_depletion",
+    "active_external_call",
 )
 
 
@@ -135,82 +138,77 @@ def refund_chains(view: ObservedTraceView) -> list[Signal]:
     return out
 
 
-def unknown_peer_network(view: ObservedTraceView) -> list[Signal]:
-    """Peer IP/ASN/device never appeared in prior synthetic history."""
+def app_scam_signals(view: ObservedTraceView) -> list[Signal]:
+    """Payment-time APP scam evidence available to a bank or payment network."""
     out: list[Signal] = []
     for event in view.events:
-        if event.kind != "network.observed":
-            continue
-        asn_seen = int(event.payload.get("history_asn_seen_count", 1))
-        ip_seen = int(event.payload.get("history_ip_seen_count", 1))
-        device_seen = int(event.payload.get("history_device_seen_count", 1))
-        hosting = bool(event.payload.get("is_hosting_provider"))
-        if asn_seen == 0 and ip_seen == 0:
-            strength = 0.85 if hosting and device_seen == 0 else 0.65
+        p = event.payload
+        if event.kind == "payee.added" and bool(p.get("first_time_payee")):
             out.append(
                 Signal(
-                    name="unknown_peer_network",
-                    description=(
-                        "call peer uses an unseen network/ASN"
-                        + (" classified as hosting" if hosting else "")
-                    ),
+                    name="first_time_payee",
+                    description="customer added a first-time beneficiary for this payment session",
                     evidence_refs=[event.event_id],
-                    strength=strength,
+                    strength=0.65,
                 )
             )
-    return out
-
-
-def media_liveness_anomaly(view: ObservedTraceView) -> list[Signal]:
-    """Versioned media/liveness adapter reports a high anomaly score."""
-    out: list[Signal] = []
-    for event in view.events:
-        if event.kind != "webrtc.rtp_stats":
-            continue
-        score = float(event.payload.get("liveness_anomaly_score", 0.0))
-        if score >= 0.7:
+        elif event.kind == "app.behavior.sampled":
+            distance = float(p.get("behavioral_distance", 0.0))
+            pasted = bool(p.get("payee_field_pasted"))
+            dwell = float(p.get("confirmation_dwell_seconds", 0.0))
+            if distance >= 0.7 and (pasted or dwell >= 20):
+                out.append(
+                    Signal(
+                        name="behavioral_coaching_risk",
+                        description="payment entry behavior deviates from the customer baseline",
+                        evidence_refs=[event.event_id],
+                        strength=min(distance, 1.0),
+                    )
+                )
+        elif event.kind == "beneficiary.risk.assessed":
+            score = float(p.get("network_risk_score", 0.0))
+            if score >= 0.7:
+                out.append(
+                    Signal(
+                        name="beneficiary_network_risk",
+                        description="recipient shows young-account, fan-in, or rapid pass-through risk",
+                        evidence_refs=[event.event_id],
+                        strength=min(score, 1.0),
+                    )
+                )
+        elif event.kind == "scam.intervention.responded" and bool(p.get("warning_overridden")):
             out.append(
                 Signal(
-                    name="media_liveness_anomaly",
-                    description=(
-                        f"video liveness anomaly score {score:.2f} from "
-                        f"{event.payload.get('detector_version', 'unknown detector')}"
-                    ),
+                    name="warning_override",
+                    description="customer continued after a targeted scam intervention",
                     evidence_refs=[event.event_id],
-                    strength=min(score, 1.0),
+                    strength=0.75,
                 )
             )
-    return out
-
-
-def transaction_during_call(view: ObservedTraceView) -> list[Signal]:
-    """Payment lifecycle overlaps an active call with matching session/call IDs."""
-    starts: dict[str, TraceEvent] = {}
-    ends: dict[str, TraceEvent] = {}
-    for event in view.events:
-        call_id = str(event.payload.get("call_id", ""))
-        if event.kind == "call.started" and call_id:
-            starts[call_id] = event
-        elif event.kind == "call.ended" and call_id:
-            ends[call_id] = event
-
-    out: list[Signal] = []
-    for event in view.events:
-        if event.kind not in {"payment.initiated", "payment.authorized"}:
-            continue
-        call_id = str(event.payload.get("call_id", ""))
-        start = starts.get(call_id)
-        end = ends.get(call_id)
-        if start is not None and start.ts <= event.ts and (end is None or event.ts <= end.ts):
-            refs = [start.event_id, event.event_id]
-            if end is not None:
-                refs.append(end.event_id)
+        elif event.kind == "payment.initiated":
+            amount = float(p.get("amount_minor", 0.0))
+            balance = float(p.get("available_balance_minor", 0.0))
+            ratio = amount / balance if balance > 0 else 0.0
+            if ratio >= 0.7:
+                out.append(
+                    Signal(
+                        name="balance_depletion",
+                        description=f"payment would consume {ratio:.0%} of available funds",
+                        evidence_refs=[event.event_id],
+                        strength=min(ratio, 1.0),
+                    )
+                )
+        elif (
+            event.kind == "device.call_state.observed"
+            and bool(p.get("state_available"))
+            and bool(p.get("active"))
+        ):
             out.append(
                 Signal(
-                    name="transaction_during_call",
-                    description="payment authorized while the communication session was active",
-                    evidence_refs=refs,
-                    strength=0.9,
+                    name="active_external_call",
+                    description="device reported anonymous system-visible call activity",
+                    evidence_refs=[event.event_id],
+                    strength=0.35,
                 )
             )
     return out
@@ -222,9 +220,7 @@ def all_signals(view: ObservedTraceView) -> list[Signal]:
         + off_hours_activity(view)
         + new_device_then_payment(view)
         + refund_chains(view)
-        + unknown_peer_network(view)
-        + media_liveness_anomaly(view)
-        + transaction_during_call(view)
+        + app_scam_signals(view)
     )
     seen: set[str] = set()
     unique = [s for s in merged if not (s.name in seen or seen.add(s.name))]

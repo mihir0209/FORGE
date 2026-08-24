@@ -87,6 +87,10 @@ export interface ModelCard {
   detector_id: string;
   kind: string;
   promoted: boolean;
+  schema_compatible?: boolean;
+  incompatible_candidate_id?: string;
+  incompatible_candidate_metrics?: ModelCard["metrics"];
+  feature_names?: string[];
   artifact_path?: string;
   metrics?: Partial<Record<"precision" | "recall" | "f1" | "roc_auc" | "pr_auc" | "brier" | "p50_latency_ms" | "p95_latency_ms", number>>;
 }

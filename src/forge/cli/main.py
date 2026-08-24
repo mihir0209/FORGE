@@ -7,10 +7,10 @@ import json
 import sys
 from pathlib import Path
 
+from forge.app_scam_runner import run_app_scam_cycle
 from forge.artifacts import artifact_store_from_env
 from forge.cycle_runner import run_offline_cycle
 from forge.kb import SQLiteRegistry
-from forge.multimodal_runner import run_multimodal_cycle
 from forge.redteam.fixtures import default_draft
 
 
@@ -76,12 +76,12 @@ def _cmd_cycle(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_multimodal(args: argparse.Namespace) -> int:
+def _cmd_app_scam(args: argparse.Namespace) -> int:
     registry = SQLiteRegistry(Path(args.db))
     store = artifact_store_from_env()
-    record = run_multimodal_cycle(
+    record = run_app_scam_cycle(
         seed=args.seed,
-        cycle_id=args.cycle_id or f"cycle-mm-{args.seed}",
+        cycle_id=args.cycle_id or f"cycle-app-{args.seed}",
         registry=registry,
         store=store,
     )
@@ -115,14 +115,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     cyc.set_defaults(func=_cmd_cycle)
 
-    mm = sub.add_parser(
-        "multimodal-cycle",
-        help="execute a deepfake-assisted synthetic video-call payment cycle",
+    app_scam = sub.add_parser(
+        "app-scam-cycle",
+        help="execute an AI-assisted authorized-push-payment scam cycle",
     )
-    mm.add_argument("--seed", type=int, required=True)
-    mm.add_argument("--cycle-id")
-    mm.add_argument("--db", default="data/registry.sqlite")
-    mm.set_defaults(func=_cmd_multimodal)
+    app_scam.add_argument("--seed", type=int, required=True)
+    app_scam.add_argument("--cycle-id")
+    app_scam.add_argument("--db", default="data/registry.sqlite")
+    app_scam.set_defaults(func=_cmd_app_scam)
 
     trn = sub.add_parser("train", help="run one training round from the current registry")
     trn.add_argument("--db", default="data/registry.sqlite")

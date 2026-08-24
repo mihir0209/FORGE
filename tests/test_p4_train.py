@@ -70,14 +70,14 @@ def test_promotion_evaluates_and_installs(tmp_path: Path, monkeypatch: pytest.Mo
     report = train_detector(ref, n_estimators=40)
 
     verdict = evaluate(report, reg)
-    assert verdict.passed is True
-    assert verdict.checks["roc_auc_ge_0.85"] is True
+    assert verdict.passed is False
+    assert verdict.checks["approved_evaluation_protocol"] is False
 
     ok = install_if_passed(report, verdict)
-    assert ok is True
+    assert ok is False
 
     det = load_incumbent()
-    assert det.detector_id == report.candidate_id
+    assert det.detector_id == "rule-baseline-v1"
 
     # gate now uses the incumbent: attack scores higher than legit
     attack_view = simulate(make_spec(), WorldSeed(master_seed=999)).trace.observed_view()

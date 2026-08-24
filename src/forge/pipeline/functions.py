@@ -60,11 +60,11 @@ async def cycle_compose(ctx: inngest.Context) -> None:
     admitted = await _run_step(ctx.step, "admit", stages.stage_admit_cycle, data)
     if not admitted:
         return
-    if data.get("scenario") == "multimodal_deepfake_call":
+    if data.get("scenario") == "ai_assisted_app_scam":
         await _run_step(ctx.step, "cycle_started", stages.stage_cycle_started, data)
-        result = await _run_step(ctx.step, "multimodal_cycle", stages.stage_multimodal_cycle, data)
+        result = await _run_step(ctx.step, "app_scam_cycle", stages.stage_app_scam_cycle, data)
         await ctx.step.send_event(
-            "emit_multimodal_complete",
+            "emit_app_scam_complete",
             inngest.Event(name="cycle.accepted", data=result),
         )
         return

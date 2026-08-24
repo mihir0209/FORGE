@@ -136,7 +136,7 @@ function Overview({ cycles, coverage, model, gaps, onCycle }: { cycles: CycleSum
   const detected = cycles.filter((c) => c.coverage !== "blind_spot").length;
   const avgScore = cycles.length ? cycles.reduce((sum, c) => sum + c.gate_score, 0) / cycles.length : 0;
   return <>
-    <PageTitle kicker="Closed loop · live evidence" title="The lab that hunts what it cannot yet catch." copy="Red-team strategies become synthetic traces. Blue-team evidence becomes detector features. Residual gaps become tomorrow's attack objective." />
+    <PageTitle kicker="Featured AI-assisted scam defense" title="Detect the campaign, not just the fake." copy="The latest APP scenario models off-channel impersonation driving a genuine customer session. Historical research cycles remain visible below." />
     <section className="metric-strip">
       <Metric label="Adversarial cycles" value={cycles.length} note={`${cycles.filter((c) => c.accepted).length} admitted`} />
       <Metric label="Mean gate score" value={avgScore * 100} suffix="%" note={`${detected} with signal`} />
@@ -190,7 +190,7 @@ function CycleSelector({ cycles, selected, onSelect }: { cycles: CycleSummary[];
 
 function AttackLab({ cycles, detail, selected, onSelect }: { cycles: CycleSummary[]; detail: CycleDetail | null; selected: string | null; onSelect: (id: string) => void }) {
   return <>
-    <PageTitle kicker="Red team · strategy evidence" title="Attack Lab" copy="A strict, replayable attack hypothesis. Every stage is synthetic, schema-validated and traceable to an F3 cell." />
+    <PageTitle kicker="Red team · campaign evidence" title="Attack Lab" copy="A replayable AI-assisted scam campaign. Off-site preparation remains hidden; the target environment emits only evidence a bank or payment network could observe." />
     <div className="lab-layout"><CycleSelector cycles={cycles} selected={selected} onSelect={onSelect} /><section className="panel dossier">
       {detail ? <><div className="dossier-head"><div><span>STRATEGY DOSSIER</span><h2>{detail.strategy.attack_family.replaceAll("_", " ")}</h2></div><StatusPill status={detail.gate_result.coverage} /></div>
         <div className="objective"><span>FRAUD OBJECTIVE</span><p>{detail.strategy.fraud_objective}</p></div>
@@ -218,10 +218,10 @@ function ModelDashboard({ model, cycles }: { model: ModelCard | null; cycles: Cy
   const data = cycles.slice().reverse().map((cycle, index) => ({ index: index + 1, score: cycle.gate_score * 100 }));
   const metrics = model?.metrics ?? {};
   return <>
-    <PageTitle kicker="Champion / challenger" title="Model Registry" copy="A candidate cannot touch the gate until it beats the incumbent across efficacy, calibration, controls and latency." />
+    <PageTitle kicker="Champion / challenger" title="Model Registry" copy="A candidate cannot touch the gate until it passes a sealed temporal or unseen-family holdout, calibration, control and latency gates." />
     <section className="metric-strip model-strip"><Metric label="ROC-AUC" value={(metrics.roc_auc ?? 0) * 100} suffix="%" note="attack-family holdout" /><Metric label="PR-AUC" value={(metrics.pr_auc ?? 0) * 100} suffix="%" note="positive-class quality" /><Metric label="Brier score" value={metrics.brier ?? 0} note="lower is better" /><Metric label="P95 latency" value={metrics.p95_latency_ms ?? 0} suffix=" ms" note="budget: 100 ms" /></section>
     <div className="model-grid"><section className="panel chart-panel"><PanelHeader icon={Gauge} overline="MODEL FEEDBACK" title="Gate score by cycle" /><div className="chart-wrap"><ResponsiveContainer width="100%" height="100%"><AreaChart data={data}><defs><linearGradient id="score" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#ea4d3d" stopOpacity={0.5}/><stop offset="1" stopColor="#ea4d3d" stopOpacity={0}/></linearGradient></defs><CartesianGrid stroke="#34362f" vertical={false}/><XAxis dataKey="index" tick={{ fill: "#8e9086", fontSize: 11 }} axisLine={false}/><YAxis domain={[0,100]} tick={{ fill: "#8e9086", fontSize: 11 }} axisLine={false}/><Tooltip contentStyle={{ background: "#191b18", border: "1px solid #383a34", borderRadius: 8 }} /><Area type="monotone" dataKey="score" stroke="#ea4d3d" strokeWidth={2} fill="url(#score)" /></AreaChart></ResponsiveContainer></div></section>
-      <section className="panel promotion-panel"><PanelHeader icon={Database} overline="INSTALLED ARTIFACT" title={model?.detector_id ?? "No model"} /><div className="promotion-status"><ShieldCheck size={28}/><strong>{model?.promoted ? "PROMOTED" : "BASELINE"}</strong><span>{model?.kind ?? "rules"}</span></div><div className="gate-checks">{["ROC-AUC ≥ .85","Recall@FPR ≥ .50","Brier ≤ .25","P95 ≤ 100ms","Control FP ≤ .15","Beats incumbent"].map((gate) => <div key={gate}><i /><span>{gate}</span><b>PASS</b></div>)}</div></section>
+      <section className="panel promotion-panel"><PanelHeader icon={Database} overline="INSTALLED ARTIFACT" title={model?.detector_id ?? "No model"} /><div className="promotion-status"><ShieldCheck size={28}/><strong>{model?.promoted ? "PROMOTED" : model?.schema_compatible === false ? "INCOMPATIBLE" : "BASELINE"}</strong><span>{model?.kind ?? "rules"}</span></div><div className="gate-checks">{["ROC-AUC ≥ .85","Recall@FPR ≥ .50","Brier ≤ .25","P95 ≤ 100ms","Control FP ≤ .15","Feature schema compatible"].map((gate) => <div key={gate}><i /><span>{gate}</span><b>{model?.promoted ? "PASS" : "PENDING"}</b></div>)}</div></section>
     </div>
   </>;
 }

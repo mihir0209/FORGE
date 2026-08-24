@@ -71,6 +71,16 @@ def _mitigations_for(signals: list[Signal]) -> list[str]:
         m.append("hold refunds above customer-level velocity threshold")
     if "off_hours_payments" in names:
         m.append("risk-score off-hours band higher for low-tenure customers")
+    if "first_time_payee" in names:
+        m.append("verify the beneficiary and apply first-payment controls")
+    if "beneficiary_network_risk" in names:
+        m.append("hold payment and investigate the recipient network")
+    if "behavioral_coaching_risk" in names:
+        m.append("use a targeted scam intervention and independent callback")
+    if "warning_override" in names:
+        m.append("apply a cooling-off period before releasing funds")
+    if "balance_depletion" in names:
+        m.append("require specialist review for balance-depleting transfers")
     return m
 
 

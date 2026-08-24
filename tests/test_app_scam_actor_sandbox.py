@@ -1,18 +1,21 @@
-"""One complete executable multimodal actor-sandbox cycle."""
+"""One complete AI-assisted APP scam actor-sandbox cycle."""
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from forge.actor_sandbox import ActorSandbox, deepfake_payment_plan
+from forge.actor_sandbox import ActorSandbox, ai_assisted_app_scam_plan
 from forge.artifacts import LocalArtifactStore
 from forge.blueteam import investigate
 from forge.contracts.contracts import (
+    ActionPlan,
     ContextBudgetPolicy,
     EvidenceRef,
     RunState,
     RunSupervisorConfig,
+    ToolAction,
+    ToolKind,
     WorldSeed,
 )
 from forge.operations.email import EmailNotifier
@@ -22,12 +25,12 @@ from forge.signals import all_signals
 
 
 @pytest.mark.skipif(not Path("/usr/bin/ffmpeg").exists(), reason="ffmpeg required")
-def test_complete_deepfake_call_payment_cycle(tmp_path: Path) -> None:
+def test_complete_ai_assisted_app_scam_cycle(tmp_path: Path) -> None:
     store = LocalArtifactStore(tmp_path / "objects")
     sandbox = ActorSandbox(store)
-    plan = deepfake_payment_plan("strategy-mm-1", "cycle-mm-1")
+    plan = ai_assisted_app_scam_plan("strategy-app-1", "cycle-app-1")
 
-    result = sandbox.execute(plan, WorldSeed(master_seed=42), cycle_id="cycle-mm-1")
+    result = sandbox.execute(plan, WorldSeed(master_seed=42), cycle_id="cycle-app-1")
 
     assert result.trace.fidelity.reachability_ok
     assert {a.media_type for a in [p.artifact for p in result.provenance]} >= {
@@ -42,18 +45,41 @@ def test_complete_deepfake_call_payment_cycle(tmp_path: Path) -> None:
     observed = result.trace.observed_view()
     assert all(not e.private_payload for e in observed.events)
     assert all(not e.is_attack_step and e.attack_stage is None for e in observed.events)
+    assert not any(e.kind.startswith("media.") for e in observed.events)
+    assert "synthetic" not in observed.model_dump_json().lower()
+    call_state = next(e for e in observed.events if e.kind == "device.call_state.observed")
+    assert call_state.payload["active"] is True
+    assert call_state.payload["caller_identity_available"] is False
+    assert call_state.payload["provider_identity_available"] is False
+    assert call_state.payload["media_available"] is False
 
     names = {signal.name for signal in all_signals(observed)}
     assert {
-        "unknown_peer_network",
-        "media_liveness_anomaly",
-        "transaction_during_call",
+        "first_time_payee",
+        "behavioral_coaching_risk",
+        "beneficiary_network_risk",
+        "warning_override",
+        "balance_depletion",
+        "active_external_call",
     } <= names
     report = investigate(observed)
     assert report.signals
     assert {ref for signal in report.signals for ref in signal.evidence_refs} <= set(
         observed.event_ids
     )
+
+
+def test_app_scam_rejects_unlinked_behavior_evidence(tmp_path: Path) -> None:
+    sandbox = ActorSandbox(LocalArtifactStore(tmp_path / "objects"))
+    plan = ActionPlan(
+        plan_id="invalid-plan",
+        strategy_id="strategy-app-invalid",
+        actor_id="simulated-customer-1",
+        actions=[ToolAction(action_id="behavior", tool=ToolKind.BEHAVIOR_SAMPLE)],
+    )
+
+    with pytest.raises(ValueError, match="requires an app session and payee"):
+        sandbox.execute(plan, WorldSeed(master_seed=42), cycle_id="cycle-app-invalid")
 
 
 def test_context_compacts_before_25_percent(tmp_path: Path) -> None:

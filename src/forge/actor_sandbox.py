@@ -11,6 +11,7 @@ from forge.contracts.contracts import (
     ActionPlan,
     ActorKind,
     ArtifactProvenance,
+    EvidenceScope,
     FidelityReport,
     GroundTruth,
     LifecycleStage,
@@ -58,6 +59,7 @@ class ActorSandbox:
             actor_kind: ActorKind = ActorKind.ATTACKER,
             stage: LifecycleStage | None = None,
             seconds: int = 0,
+            scope: EvidenceScope = EvidenceScope.DEFENDER,
         ) -> TraceEvent:
             nonlocal seq
             seq += 1
@@ -68,6 +70,7 @@ class ActorSandbox:
                 actor_id=plan.actor_id,
                 kind=kind,
                 payload=payload,
+                evidence_scope=scope,
                 private_payload=private or {},
                 is_attack_step=True,
                 attack_stage=stage,
@@ -75,9 +78,8 @@ class ActorSandbox:
             events.append(event)
             return event
 
-        active_call_id: str | None = None
-        call_started: TraceEvent | None = None
-        latest_video_id: str | None = None
+        app_session_id: str | None = None
+        payee_id: str | None = None
 
         for index, action in enumerate(plan.actions):
             self._validate_dependencies(action, outputs)
@@ -102,11 +104,6 @@ class ActorSandbox:
                 observations.extend(result.observations)
                 outputs[action.action_id] = [a.artifact_id for a in result.output_artifacts]
                 for observation in result.observations:
-                    latest_video_id = (
-                        observation.artifact.artifact_id
-                        if observation.artifact.media_type.startswith("video/")
-                        else latest_video_id
-                    )
                     emit(
                         "media.inspected"
                         if action.tool == ToolKind.MEDIA_INSPECT
@@ -130,134 +127,196 @@ class ActorSandbox:
                         },
                         stage=LifecycleStage.AUTHENTICATION,
                         seconds=second,
+                        scope=EvidenceScope.INTERNAL,
                     )
                 continue
 
-            if action.tool == ToolKind.CALL_START:
-                active_call_id = str(action.parameters.get("call_id", f"call-{cycle_id}"))
-                call_started = emit(
-                    "call.started",
+            if action.tool == ToolKind.APP_SESSION_START:
+                app_session_id = f"bank-session-{cycle_id}"
+                emit(
+                    "app.session.started",
                     {
-                        "session_id": f"session-{cycle_id}",
-                        "call_id": active_call_id,
-                        "direction": "outbound",
-                        "peer_ref": "synthetic-victim-1",
-                        "media_kinds": ["audio", "video"],
+                        "session_id": app_session_id,
+                        "device_id": "customer-device-1",
+                        "platform": "ios",
+                        "app_version": "forge-bank-1",
+                        "device_seen_count": 42,
                     },
-                    private={"actor_role": "red", "peer_is_synthetic": True},
+                    private={"customer_is_simulated": True},
+                    actor_kind=ActorKind.CUSTOMER,
                     stage=LifecycleStage.AUTHENTICATION,
                     seconds=second,
-                )
-                emit(
-                    "network.observed",
-                    {
-                        "session_id": f"session-{cycle_id}",
-                        "call_id": active_call_id,
-                        "network_address_token": "net-unknown-42",
-                        "network_asn": 64542,
-                        "network_as_org": "Synthetic Hosting Lab",
-                        "network_country_iso": "ZZ",
-                        "history_ip_seen_count": 0,
-                        "history_asn_seen_count": 0,
-                        "history_device_seen_count": 0,
-                        "is_hosting_provider": True,
-                    },
-                    private={"true_peer": "attacker-node", "injected_novelty": True},
-                    stage=LifecycleStage.AUTHENTICATION,
-                    seconds=second + 1,
                 )
                 continue
 
-            if action.tool == ToolKind.CALL_SAMPLE:
-                if active_call_id is None:
-                    raise ValueError("call.sample requires an active call")
+            if action.tool == ToolKind.DEVICE_ATTEST:
+                if app_session_id is None:
+                    raise ValueError("device.attest requires an app session")
                 emit(
-                    "webrtc.transport_stats",
+                    "device.attested",
                     {
-                        "session_id": f"session-{cycle_id}",
-                        "call_id": active_call_id,
-                        "ice_state": "connected",
-                        "ice_remote_type": "relay",
-                        "ice_current_rtt_s": 0.182,
-                        "ice_bytes_sent": 820_000,
-                        "ice_bytes_received": 610_000,
-                        "network_peer_token": "net-unknown-42",
+                        "session_id": app_session_id,
+                        "provider": "app-attest",
+                        "app_integrity": "recognized",
+                        "device_integrity": "genuine",
+                        "overlay_risk": False,
                     },
+                    actor_kind=ActorKind.DEVICE,
                     stage=LifecycleStage.AUTHENTICATION,
                     seconds=second,
                 )
+                continue
+
+            if action.tool == ToolKind.CALL_STATE_OBSERVE:
+                if app_session_id is None:
+                    raise ValueError("call_state.observe requires an app session")
                 emit(
-                    "webrtc.rtp_stats",
+                    "device.call_state.observed",
                     {
-                        "session_id": f"session-{cycle_id}",
-                        "call_id": active_call_id,
-                        "kind": "video",
-                        "codec": "h264",
-                        "packets_received": 790,
-                        "packets_lost": 17,
-                        "jitter_s": 0.039,
-                        "frames_per_second": 24.0,
-                        "frames_dropped": 8,
-                        "media_artifact_id": latest_video_id,
-                        "liveness_anomaly_score": 0.91,
-                        "detector_version": "fixture-liveness-v1",
+                        "session_id": app_session_id,
+                        "source": "ios_callkit",
+                        "state_available": True,
+                        "active": True,
+                        "direction": "incoming",
+                        "caller_identity_available": False,
+                        "provider_identity_available": False,
+                        "media_available": False,
                     },
-                    private={"media_generated": True},
+                    actor_kind=ActorKind.DEVICE,
                     stage=LifecycleStage.AUTHENTICATION,
-                    seconds=second + 1,
+                    seconds=second,
+                )
+                continue
+
+            if action.tool == ToolKind.PAYEE_ADD:
+                if app_session_id is None:
+                    raise ValueError("payee.add requires an app session")
+                payee_id = f"payee-{cycle_id}"
+                emit(
+                    "payee.added",
+                    {
+                        "session_id": app_session_id,
+                        "payee_id": payee_id,
+                        "first_time_payee": True,
+                        "entry_method": "clipboard_paste",
+                    },
+                    private={"payee_is_mule": True},
+                    actor_kind=ActorKind.CUSTOMER,
+                    stage=LifecycleStage.PAYMENT,
+                    seconds=second,
+                )
+                continue
+
+            if action.tool == ToolKind.PAYEE_VERIFY:
+                if payee_id is None:
+                    raise ValueError("payee.verify requires a payee")
+                emit(
+                    "payee.verification.completed",
+                    {
+                        "session_id": app_session_id,
+                        "payee_id": payee_id,
+                        "result": "close_match",
+                        "entered_name_token": "name-entered-1",
+                        "matched_name_token": "name-held-1",
+                    },
+                    actor_kind=ActorKind.SYSTEM,
+                    stage=LifecycleStage.PAYMENT,
+                    seconds=second,
+                )
+                continue
+
+            if action.tool == ToolKind.BEHAVIOR_SAMPLE:
+                if app_session_id is None or payee_id is None:
+                    raise ValueError("behavior.sample requires an app session and payee")
+                emit(
+                    "app.behavior.sampled",
+                    {
+                        "session_id": app_session_id,
+                        "payee_field_pasted": True,
+                        "confirmation_dwell_seconds": 31.0,
+                        "field_correction_count": 4,
+                        "navigation_directness": 0.96,
+                        "behavioral_distance": 0.82,
+                    },
+                    actor_kind=ActorKind.CUSTOMER,
+                    stage=LifecycleStage.PAYMENT,
+                    seconds=second,
+                )
+                continue
+
+            if action.tool == ToolKind.BENEFICIARY_RISK_QUERY:
+                if payee_id is None:
+                    raise ValueError("beneficiary.risk.query requires a payee")
+                emit(
+                    "beneficiary.risk.assessed",
+                    {
+                        "payee_id": payee_id,
+                        "account_age_days": 6,
+                        "unique_senders_1h": 8,
+                        "rapid_pass_through_ratio": 0.88,
+                        "network_risk_score": 0.91,
+                        "risk_scope": "consortium",
+                    },
+                    actor_kind=ActorKind.SYSTEM,
+                    stage=LifecycleStage.PAYMENT,
+                    seconds=second,
+                )
+                continue
+
+            if action.tool == ToolKind.SCAM_INTERVENE:
+                if app_session_id is None or payee_id is None:
+                    raise ValueError("scam.intervene requires an app session and payee")
+                emit(
+                    "scam.intervention.responded",
+                    {
+                        "session_id": app_session_id,
+                        "intervention_id": "safe-account-warning-v1",
+                        "reason": "new_payee_and_recipient_network_risk",
+                        "response": "continue",
+                        "warning_overridden": True,
+                    },
+                    private={"customer_was_coached_to_override": True},
+                    actor_kind=ActorKind.CUSTOMER,
+                    stage=LifecycleStage.PAYMENT,
+                    seconds=second,
                 )
                 continue
 
             if action.tool == ToolKind.PAYMENT_INITIATE:
-                if active_call_id is None or call_started is None:
-                    raise ValueError("payment must occur during an active communication session")
+                if app_session_id is None or payee_id is None:
+                    raise ValueError("payment requires an app session and payee")
                 payment = emit(
                     "payment.initiated",
                     {
                         "payment_id": f"pay-{cycle_id}",
                         "amount_minor": int(action.parameters.get("amount_minor", 75_000)),
                         "currency": str(action.parameters.get("currency", "INR")),
-                        "method_token": "synthetic-token-1",
+                        "method_token": "customer-account-token-1",
                         "state": "initiated",
                         "channel": "upi",
-                        "device_id": "victim-device-1",
-                        "session_id": f"session-{cycle_id}",
-                        "call_id": active_call_id,
-                        "ref_event_ids": [call_started.event_id],
+                        "device_id": "customer-device-1",
+                        "session_id": app_session_id,
+                        "payee_id": payee_id,
+                        "available_balance_minor": 90_000,
                     },
-                    private={"coerced_by_synthetic_media": True},
-                    actor_kind=ActorKind.VICTIM,
+                    private={"coerced_by_ai_impersonation": True},
+                    actor_kind=ActorKind.CUSTOMER,
                     stage=LifecycleStage.PAYMENT,
                     seconds=second,
                 )
                 emit(
-                    "payment.authorized",
+                    "payment.held",
                     {
                         **payment.payload,
-                        "state": "authorized",
-                        "ref_event_ids": [payment.event_id, call_started.event_id],
+                        "state": "held",
+                        "hold_reason": "scam_risk_review",
+                        "ref_event_ids": [payment.event_id],
                     },
-                    private={"fraud_ground_truth": True},
+                    private={"fraud_ground_truth": True, "loss_prevented": True},
                     actor_kind=ActorKind.SYSTEM,
                     stage=LifecycleStage.PAYMENT,
                     seconds=second + 2,
                 )
-                continue
-
-            if action.tool == ToolKind.CALL_END:
-                if active_call_id is None:
-                    raise ValueError("call.end requires an active call")
-                emit(
-                    "call.ended",
-                    {
-                        "session_id": f"session-{cycle_id}",
-                        "call_id": active_call_id,
-                        "termination_reason": "normal",
-                    },
-                    stage=LifecycleStage.CASH_OUT,
-                    seconds=second,
-                )
-                active_call_id = None
                 continue
 
             raise ValueError(f"unsupported actor tool: {action.tool}")
@@ -281,8 +340,8 @@ class ActorSandbox:
                 ks_timestamp_gap=0.0,
                 graph_density_delta=0.0,
                 temporal_autocorr=0.0,
-                reachability_ok=active_call_id is None and bool(attack_ids),
-                notes=["multimodal deterministic actor-sandbox fixture"],
+                reachability_ok=app_session_id is not None and bool(attack_ids),
+                notes=["AI-assisted APP scam with realistic payment-time evidence boundaries"],
             ),
         )
         return SandboxResult(trace=trace, provenance=provenance, media_observations=observations)
@@ -293,12 +352,12 @@ class ActorSandbox:
             raise ValueError(f"action {action.action_id} missing dependencies: {missing}")
 
 
-def deepfake_payment_plan(strategy_id: str, cycle_id: str) -> ActionPlan:
-    """Known-good smoke plan. A live red agent emits the same ActionPlan schema."""
+def ai_assisted_app_scam_plan(strategy_id: str, cycle_id: str) -> ActionPlan:
+    """Prepare impersonation off-site, then exercise only realistic bank-visible signals."""
     return ActionPlan(
         plan_id=f"plan-{cycle_id}",
         strategy_id=strategy_id,
-        actor_id="synthetic-attacker-1",
+        actor_id="simulated-customer-1",
         actions=[
             ToolAction(action_id="portrait", tool=ToolKind.IMAGE_GENERATE),
             ToolAction(action_id="voice", tool=ToolKind.AUDIO_GENERATE),
@@ -311,19 +370,20 @@ def deepfake_payment_plan(strategy_id: str, cycle_id: str) -> ActionPlan:
                 action_id="inspect",
                 tool=ToolKind.MEDIA_INSPECT,
                 depends_on=["video"],
-                parameters={"role": "presented_video"},
+                parameters={"role": "offsite_impersonation_asset"},
             ),
-            ToolAction(
-                action_id="call-start",
-                tool=ToolKind.CALL_START,
-                parameters={"call_id": f"call-{cycle_id}"},
-            ),
-            ToolAction(action_id="call-stats", tool=ToolKind.CALL_SAMPLE),
+            ToolAction(action_id="app-session", tool=ToolKind.APP_SESSION_START),
+            ToolAction(action_id="attest", tool=ToolKind.DEVICE_ATTEST),
+            ToolAction(action_id="call-state", tool=ToolKind.CALL_STATE_OBSERVE),
+            ToolAction(action_id="payee", tool=ToolKind.PAYEE_ADD),
+            ToolAction(action_id="payee-check", tool=ToolKind.PAYEE_VERIFY),
+            ToolAction(action_id="behavior", tool=ToolKind.BEHAVIOR_SAMPLE),
+            ToolAction(action_id="recipient-risk", tool=ToolKind.BENEFICIARY_RISK_QUERY),
+            ToolAction(action_id="intervention", tool=ToolKind.SCAM_INTERVENE),
             ToolAction(
                 action_id="payment",
                 tool=ToolKind.PAYMENT_INITIATE,
                 parameters={"amount_minor": 75_000, "currency": "INR"},
             ),
-            ToolAction(action_id="call-end", tool=ToolKind.CALL_END),
         ],
     )

@@ -102,10 +102,27 @@ def model_card() -> dict[str, Any]:
     report = (
         cast("dict[str, Any]", json.loads(report_path.read_text())) if report_path.exists() else {}
     )
+    from forge.signals import FEATURE_NAMES
+
+    feature_names = list(meta.get("feature_names", []))
+    compatible = feature_names == list(FEATURE_NAMES)
+    if not compatible:
+        return {
+            "detector_id": "rule-baseline-v1",
+            "kind": "rules",
+            "promoted": False,
+            "schema_compatible": False,
+            "incompatible_candidate_id": meta["candidate_id"],
+            "feature_names": feature_names,
+            "metrics": {},
+            "incompatible_candidate_metrics": report,
+        }
     return {
         "detector_id": meta["candidate_id"],
         "kind": "lightgbm-calibrated",
-        "promoted": True,
+        "promoted": compatible,
+        "schema_compatible": compatible,
+        "feature_names": feature_names,
         "artifact_path": meta["artifact_path"],
         "metrics": report,
     }

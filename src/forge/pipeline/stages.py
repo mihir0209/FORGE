@@ -38,7 +38,7 @@ from forge.contracts.contracts import (
     WorldSeed,
     ev_dict,
 )
-from forge.detect import gate_score
+from forge.detect import gate_score, trace_features
 from forge.detect.incumbent import load_incumbent
 from forge.gapmine import fallback_brief, rank
 from forge.ids import cycle_id_base, strategy_id_for
@@ -165,15 +165,15 @@ def stage_compose(data: dict[str, Any]) -> dict[str, object] | None:
     )
 
 
-def stage_multimodal_cycle(data: dict[str, Any]) -> dict[str, object]:
-    """Execute the typed actor plan in one durable step (fixture or S3 adapter)."""
+def stage_app_scam_cycle(data: dict[str, Any]) -> dict[str, object]:
+    """Execute the AI-assisted APP scenario with realistic evidence scopes."""
+    from forge.app_scam_runner import run_app_scam_cycle
     from forge.artifacts import artifact_store_from_env
-    from forge.multimodal_runner import run_multimodal_cycle
     from forge.operations.runtime import supervisor_from_env
 
     ev = EvCycleRequested.model_validate(data)
-    cycle_id = f"cycle-mm-{ev.seed}"
-    record = run_multimodal_cycle(
+    cycle_id = f"cycle-app-{ev.seed}"
+    record = run_app_scam_cycle(
         seed=ev.seed,
         cycle_id=cycle_id,
         registry=_registry(),
@@ -253,6 +253,7 @@ def stage_finalize(data: dict[str, Any]) -> dict[str, object]:
     reg = _registry()
     spec = StrategySpec.model_validate(load_artifact(ev.spec_ref))
     report = BlueReport.model_validate(load_artifact(ev.report_ref))
+    trace = SyntheticTrace.model_validate(load_artifact(ev.trace_ref))
 
     accepted = ev.gate.coverage != Coverage.COVERED
     ordinal = len(reg.cycles()) + 1
@@ -263,6 +264,7 @@ def stage_finalize(data: dict[str, Any]) -> dict[str, object]:
         trace_ref=ev.trace_ref.split("/")[-1].removesuffix(".json"),
         blue_report=report,
         gate_result=ev.gate,
+        detector_features=trace_features(trace.observed_view()),
         accepted=accepted,
     )
     reg.record_cycle(record)

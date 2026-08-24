@@ -65,6 +65,10 @@ def evaluate(report: CandidateReport, registry: Registry) -> PromotionVerdict:
     checks["brier_le_0.25"] = report.brier <= 0.25
     checks["latency_p95_le_100ms"] = report.p95_latency_ms <= 100.0
     checks["control_fp_rate_le_0.15"] = _control_fp_rate(report) <= 0.15
+    checks["approved_evaluation_protocol"] = report.evaluation_protocol in {
+        "temporal-family-holdout",
+        "external-sealed-holdout",
+    }
 
     incumbent = load_incumbent()
     inc_auc = _incumbent_auc_on_dataset(report.dataset, incumbent)

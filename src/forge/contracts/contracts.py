@@ -130,6 +130,11 @@ class ActorKind(StrEnum):
     SYSTEM = "system"
 
 
+class EvidenceScope(StrEnum):
+    INTERNAL = "internal"
+    DEFENDER = "defender"
+
+
 class TraceEvent(Strict):
     event_id: str
     ts: datetime
@@ -137,6 +142,7 @@ class TraceEvent(Strict):
     actor_id: str
     kind: str
     payload: dict[str, Any] = Field(default_factory=dict)
+    evidence_scope: EvidenceScope = EvidenceScope.DEFENDER
     # Internal generation truth must live here, never in payload. It is stripped
     # by observed_view() before anything reaches blue-team code.
     private_payload: dict[str, Any] = Field(default_factory=dict)
@@ -180,6 +186,7 @@ class SyntheticTrace(Strict):
                     deep=True,
                 )
                 for e in self.events
+                if e.evidence_scope == EvidenceScope.DEFENDER
             ],
         )
 
@@ -193,7 +200,11 @@ class ObservedTraceView(Strict):
     @model_validator(mode="after")
     def _no_ground_truth(self) -> ObservedTraceView:
         if any(
-            e.private_payload or e.is_attack_step or e.attack_stage is not None for e in self.events
+            e.private_payload
+            or e.is_attack_step
+            or e.attack_stage is not None
+            or e.evidence_scope != EvidenceScope.DEFENDER
+            for e in self.events
         ):
             raise ValueError("ObservedTraceView must not contain ground-truth labels")
         return self
@@ -267,6 +278,7 @@ class DatasetRef(Strict):
     calib_path: str
     test_path: str
     rows: int
+    split_protocol: str = "legacy-stratified"
 
 
 class CandidateReport(Strict):
@@ -283,6 +295,7 @@ class CandidateReport(Strict):
     p50_latency_ms: float
     p95_latency_ms: float
     artifact_path: str
+    evaluation_protocol: str = "legacy-stratified"
 
 
 class PromotionVerdict(Strict):
@@ -303,9 +316,14 @@ class ToolKind(StrEnum):
     AUDIO_GENERATE = "audio.generate"
     VIDEO_GENERATE = "video.generate"
     MEDIA_INSPECT = "media.inspect"
-    CALL_START = "call.start"
-    CALL_SAMPLE = "call.sample"
-    CALL_END = "call.end"
+    APP_SESSION_START = "app.session.start"
+    DEVICE_ATTEST = "device.attest"
+    CALL_STATE_OBSERVE = "call_state.observe"
+    PAYEE_ADD = "payee.add"
+    PAYEE_VERIFY = "payee.verify"
+    BEHAVIOR_SAMPLE = "behavior.sample"
+    BENEFICIARY_RISK_QUERY = "beneficiary.risk.query"
+    SCAM_INTERVENE = "scam.intervene"
     PAYMENT_INITIATE = "payment.initiate"
 
 
@@ -501,6 +519,7 @@ class CycleRecord(Strict):
     trace_ref: str
     blue_report: BlueReport
     gate_result: GateResult
+    detector_features: dict[str, float] = Field(default_factory=dict)
     accepted: bool
     recorded_at: datetime = Field(default_factory=_now)
 
