@@ -60,7 +60,7 @@ async def cycle_compose(ctx: inngest.Context) -> None:
     admitted = await _run_step(ctx.step, "admit", stages.stage_admit_cycle, data)
     if not admitted:
         return
-    if data.get("scenario") == "ai_assisted_app_scam":
+    if data.get("scenario") == "ai_assisted_app_scam" or data.get("family_slug"):
         await _run_step(ctx.step, "cycle_started", stages.stage_cycle_started, data)
         result = await _run_step(ctx.step, "app_scam_cycle", stages.stage_app_scam_cycle, data)
         await ctx.step.send_event(

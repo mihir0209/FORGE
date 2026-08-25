@@ -52,6 +52,11 @@ class EvidenceCapability(StrEnum):
     BANK_CONTROLLED_MEDIA = "bank_controlled_media"
 
 
+class GraphScope(StrEnum):
+    LOCAL_BANK = "local_bank"
+    CONSORTIUM = "consortium"
+
+
 class Action(StrEnum):
     APPROVE = "approve"
     STEP_UP = "step_up"
@@ -111,6 +116,8 @@ class StrategySpec(Strict):
     safety_class: SafetyClass = SafetyClass.SYNTHETIC_RESEARCH
     novelty_rationale: str
     provenance: Provenance
+    family_version: str = "1.0.0"
+    family_definition_sha256: str | None = None
 
     def fingerprint(self) -> str:
         payload = json.dumps(
@@ -429,6 +436,53 @@ class MediaJobResult(Strict):
     error_code: str | None = None
 
 
+class FraudFamilyDefinition(Strict):
+    """Immutable declarative family; selects reviewed tools but defines no code."""
+
+    slug: str = Field(pattern=r"^[a-z][a-z0-9_]{2,63}$")
+    version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
+    title: str
+    description: str
+    detection_track: DetectionTrack
+    f3: F3Mapping
+    rail: str
+    channel: str
+    genai_leverage: str
+    evasion_hypothesis: str
+    allowed_tools: list[ToolKind]
+    required_capabilities: list[EvidenceCapability] = Field(
+        default_factory=list[EvidenceCapability]
+    )
+    scenario_defaults: dict[str, bool | int | float | str] = Field(default_factory=dict)
+    research_refs: list[str] = Field(default_factory=list)
+    definition_sha256: str
+
+
+class GraphEvent(Strict):
+    event_id: str
+    event_time: datetime
+    available_at: datetime
+    kind: str
+    institution_id: str
+    source_account_ref: str | None = None
+    destination_account_ref: str | None = None
+    device_ref: str | None = None
+    identity_ref: str | None = None
+    amount_minor: int = 0
+    attributes: dict[str, Any] = Field(default_factory=dict)
+
+
+class BeneficiaryGraphAssessment(Strict):
+    assessment_id: str
+    beneficiary_ref: str
+    decision_at: datetime
+    scopes: list[GraphScope]
+    snapshot_id: str
+    snapshot_sha256: str
+    features: dict[str, float]
+    evidence_event_ids: list[str]
+
+
 # ---------------------------------------------------------------------------
 # Context budget and durable compaction (P6)
 # ---------------------------------------------------------------------------
@@ -744,6 +798,8 @@ class EvCycleRequested(Strict):
     brief_id: str | None = None
     scenario: str | None = None
     variant: str | None = None
+    family_slug: str | None = None
+    family_version: str = "1.0.0"
 
 
 class EvCycleAccepted(Strict):

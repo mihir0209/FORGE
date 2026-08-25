@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
 
 from forge.contracts.contracts import (
     ActionPlan,
@@ -13,6 +13,7 @@ from forge.contracts.contracts import (
     ArtifactProvenance,
     EvidenceScope,
     FidelityReport,
+    GraphScope,
     GroundTruth,
     LifecycleStage,
     MediaJobRequest,
@@ -24,6 +25,7 @@ from forge.contracts.contracts import (
     WorldSeed,
 )
 from forge.media import FFmpegFixtureAdapter
+from forge.risk_graph import graph_for_motif
 
 if TYPE_CHECKING:
     from forge.artifacts import ArtifactStore
@@ -267,20 +269,16 @@ class ActorSandbox:
             if action.tool == ToolKind.BENEFICIARY_RISK_QUERY:
                 if payee_id is None:
                     raise ValueError("beneficiary.risk.query requires a payee")
+                raw_scopes = action.parameters.get("scopes", ["local_bank"])
+                if not isinstance(raw_scopes, list):
+                    raise ValueError("graph scopes must be a list")
+                scopes = [GraphScope(str(value)) for value in cast("list[object]", raw_scopes)]
+                motif = str(action.parameters.get("graph_motif", "mule_fanin"))
+                decision_at = start + timedelta(seconds=second)
+                assessment = graph_for_motif(motif, payee_id, decision_at).assess(payee_id, decision_at, scopes)
                 emit(
                     "beneficiary.risk.assessed",
-                    {
-                        "payee_id": payee_id,
-                        "account_age_days": int(action.parameters.get("account_age_days", 6)),
-                        "unique_senders_1h": int(action.parameters.get("unique_senders_1h", 8)),
-                        "rapid_pass_through_ratio": float(
-                            action.parameters.get("rapid_pass_through_ratio", 0.88)
-                        ),
-                        "network_risk_score": float(
-                            action.parameters.get("network_risk_score", 0.91)
-                        ),
-                        "risk_scope": str(action.parameters.get("risk_scope", "consortium")),
-                    },
+                    {**assessment.features, "payee_id": payee_id, "risk_scope": "+".join(s.value for s in scopes), "snapshot_id": assessment.snapshot_id, "graph_evidence_refs": assessment.evidence_event_ids},
                     actor_kind=ActorKind.SYSTEM,
                     stage=LifecycleStage.PAYMENT,
                     seconds=second,
@@ -533,10 +531,8 @@ def legitimate_app_payment_plan(
                 action_id="recipient-risk",
                 tool=ToolKind.BENEFICIARY_RISK_QUERY,
                 parameters={
-                    "account_age_days": 1200,
-                    "unique_senders_1h": 1,
-                    "rapid_pass_through_ratio": 0.02,
-                    "network_risk_score": 0.08,
+                    "graph_motif": "established_account",
+                    "scopes": ["local_bank"],
                 },
             ),
             ToolAction(

@@ -102,3 +102,14 @@ export interface ModelCard {
   artifact_path?: string;
   metrics?: Partial<Record<"precision" | "recall" | "f1" | "roc_auc" | "pr_auc" | "brier" | "p50_latency_ms" | "p95_latency_ms", number>>;
 }
+
+export interface FraudFamily {
+  slug: string;
+  version: string;
+  title: string;
+  track: string;
+  rail: string;
+  channel: string;
+  definition_sha256: string;
+  research_refs: string[];
+}

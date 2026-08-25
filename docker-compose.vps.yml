@@ -133,6 +133,8 @@ services:
     environment:
       <<: *forge-env
       INNGEST_CONNECT_MAX_WORKER_CONCURRENCY: "1"
+      TINYFISH_API_KEY: ${TINYFISH_API_KEY:-}
+      TINYFISH_MCP_URL: ${TINYFISH_MCP_URL:-http://tinyfish-mcp:3711/mcp}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -145,6 +147,15 @@ services:
       resources:
         limits:
           memory: 2G
+
+  tinyfish-mcp:
+    image: node:22-alpine
+    profiles: ["research"]
+    restart: unless-stopped
+    command: ["npx", "-y", "@tiny-fish/mcp"]
+    environment:
+      TINYFISH_API_KEY: ${TINYFISH_API_KEY:-}
+    network_mode: host
 
 volumes:
   postgres-data:

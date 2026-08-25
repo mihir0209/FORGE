@@ -1,4 +1,4 @@
-import type { Coverage, CycleDetail, CycleSummary, Gap, ModelCard } from "./types";
+import type { Coverage, CycleDetail, CycleSummary, FraudFamily, Gap, ModelCard } from "./types";
 
 async function get<T>(path: string): Promise<T> {
   const response = await fetch(path);
@@ -12,6 +12,7 @@ export const api = {
   coverage: () => get<Coverage>("/api/coverage"),
   gaps: () => get<Gap[]>("/api/gaps"),
   model: () => get<ModelCard>("/api/model"),
+  families: () => get<FraudFamily[]>("/api/families"),
   chat: async (message: string, cycleId: string | null) => {
     const response = await fetch("/api/chat", {
       method: "POST",

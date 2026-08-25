@@ -181,7 +181,7 @@ def stage_app_scam_cycle(data: dict[str, Any]) -> dict[str, object]:
         cycle_id=cycle_id,
         registry=_registry(),
         store=artifact_store_from_env(),
-        variant=str(data.get("variant", "safe_account")),
+        variant=str(data.get("family_slug") or data.get("variant", "safe_account")),
     )
     supervisor = supervisor_from_env()
     if supervisor is not None:

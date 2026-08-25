@@ -63,6 +63,10 @@ def create_app() -> FastAPI:
     def get_model() -> dict[str, object]:
         return read_models.model_card()
 
+    @app.get("/api/families")
+    def get_families() -> list[dict[str, object]]:
+        return read_models.families()
+
     @app.get("/api/f3-matrix")
     def get_f3_matrix() -> dict[str, object]:
         return read_models.f3_view()

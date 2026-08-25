@@ -8,6 +8,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, cast
 
+from forge.families import FamilyRegistry
 from forge.gapmine import rank
 from forge.kb import Registry, f3_matrix, registry_from_env
 
@@ -93,6 +94,22 @@ def coverage() -> dict[str, Any]:
 
 def gaps() -> list[dict[str, Any]]:
     return [b.model_dump(mode="json") for b in rank(registry(), limit=8)]
+
+
+def families() -> list[dict[str, object]]:
+    return [
+        {
+            "slug": family.slug,
+            "version": family.version,
+            "title": family.title,
+            "track": family.detection_track.value,
+            "rail": family.rail,
+            "channel": family.channel,
+            "definition_sha256": family.definition_sha256,
+            "research_refs": family.research_refs,
+        }
+        for family in FamilyRegistry().list()
+    ]
 
 
 def model_card() -> dict[str, Any]:

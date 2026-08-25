@@ -10,7 +10,6 @@ from forge.contracts.contracts import (
     CycleRecord,
     DetectionTrack,
     EvidenceCapability,
-    F3Mapping,
     LifecycleStage,
     Provenance,
     StrategySpec,
@@ -18,45 +17,30 @@ from forge.contracts.contracts import (
 )
 from forge.detect import gate_score, trace_features
 from forge.detect.incumbent import load_incumbent
+from forge.families import FamilyRegistry, build_app_plan
 from forge.feature_schema import FEATURE_SCHEMA_VERSION
-from forge.redteam.actor import execute_strategy
 
 if TYPE_CHECKING:
     from forge.artifacts import ArtifactStore
     from forge.kb import Registry
 
 
-_VARIANTS: dict[str, tuple[str, str, str]] = {
-    "safe_account": (
-        "ai_bank_impersonation",
-        "voice/video impersonation and adaptive safe-account coaching",
-        "a genuine customer and device pass authentication while intent is coerced",
-    ),
-    "family_emergency": (
-        "ai_family_emergency",
-        "cloned family voice creates urgency around an emergency payment",
-        "a plausible recipient name and lower amount evade simple mismatch controls",
-    ),
-    "investment_coaching": (
-        "ai_investment_coaching",
-        "an AI-assisted investment persona coaches repeated payment behavior",
-        "asynchronous coaching avoids active-call evidence",
-    ),
-}
+_VARIANTS = {"safe_account": "ai_bank_impersonation", "family_emergency": "ai_family_emergency", "investment_coaching": "ai_investment_coaching"}
 
 
 def app_scam_strategy(seed: int, variant: str = "safe_account") -> StrategySpec:
-    family, leverage, evasion = _VARIANTS[variant]
+    slug = _VARIANTS.get(variant, variant)
+    family = FamilyRegistry().get(slug)
     return StrategySpec(
-        strategy_id=f"strategy-app-{variant}-{seed}",
+        strategy_id=f"strategy-app-{slug}-{seed}",
         fraud_objective=(
             "use AI-assisted impersonation outside the bank channel to coach a customer "
             f"into a high-risk UPI payment (run seed {seed})"
         ),
-        attack_family=family,
-        f3=F3Mapping(tactic="monetization", techniques=["F1010"]),
-        rail="upi",
-        channel="mobile_banking",
+        attack_family=family.slug,
+        f3=family.f3,
+        rail=family.rail,
+        channel=family.channel,
         prerequisites=["simulated customer", "off-site impersonation media", "mule beneficiary"],
         lifecycle_stages=[LifecycleStage.AUTHENTICATION, LifecycleStage.PAYMENT],
         entities={"simulated_attackers": 1, "simulated_customers": 1, "mule_accounts": 1},
@@ -67,8 +51,8 @@ def app_scam_strategy(seed: int, variant: str = "safe_account") -> StrategySpec:
             "override payee verification and targeted scam warning",
             "attempt a balance-depleting payment to a risky beneficiary",
         ],
-        genai_leverage=leverage,
-        evasion_hypothesis=evasion,
+        genai_leverage=family.genai_leverage,
+        evasion_hypothesis=family.evasion_hypothesis,
         expected_signals=[
             "first_time_payee",
             "behavioral_coaching_risk",
@@ -78,6 +62,8 @@ def app_scam_strategy(seed: int, variant: str = "safe_account") -> StrategySpec:
         ],
         novelty_rationale="cross-layer AI impersonation, customer behavior, and mule-network trace",
         provenance=Provenance(provider="fixture", model="ai-assisted-app-scam-v1"),
+        family_version=family.version,
+        family_definition_sha256=family.definition_sha256,
     )
 
 
@@ -90,12 +76,9 @@ def run_app_scam_cycle(
     variant: str = "safe_account",
 ) -> CycleRecord:
     strategy = app_scam_strategy(seed, variant)
-    sandbox_result = execute_strategy(
-        strategy,
-        cycle_id=cycle_id,
-        seed=WorldSeed(master_seed=seed),
-        sandbox=ActorSandbox(store),
-        variant=variant,
+    family = FamilyRegistry().get(strategy.attack_family, strategy.family_version)
+    sandbox_result = ActorSandbox(store).execute(
+        build_app_plan(family, cycle_id), WorldSeed(master_seed=seed), cycle_id=cycle_id
     )
     trace = sandbox_result.trace
     observed = trace.observed_view()
