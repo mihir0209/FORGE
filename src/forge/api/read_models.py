@@ -8,7 +8,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, cast
 
-from forge.families import FamilyRegistry
+from forge.families import family_registry_from_env
 from forge.gapmine import rank
 from forge.kb import Registry, f3_matrix, registry_from_env
 
@@ -108,7 +108,7 @@ def families() -> list[dict[str, object]]:
             "definition_sha256": family.definition_sha256,
             "research_refs": family.research_refs,
         }
-        for family in FamilyRegistry().list()
+        for family in family_registry_from_env().list()
     ]
 
 

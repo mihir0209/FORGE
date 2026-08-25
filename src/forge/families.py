@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from pathlib import Path
+import os
+from pathlib import Path
+from typing import Any
 
 from forge.contracts.contracts import (
     ActionPlan,
@@ -109,6 +108,11 @@ class FamilyRegistry:
 
     def list(self) -> list[FraudFamilyDefinition]:
         return sorted(self._families.values(), key=lambda f: (f.slug, f.version))
+
+
+def family_registry_from_env() -> FamilyRegistry:
+    root = Path(os.environ.get("FORGE_DATA_DIR", "data")) / "families"
+    return FamilyRegistry(root)
 
 
 def build_app_plan(family: FraudFamilyDefinition, cycle_id: str) -> ActionPlan:

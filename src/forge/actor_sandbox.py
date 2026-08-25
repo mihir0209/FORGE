@@ -11,6 +11,7 @@ from forge.contracts.contracts import (
     ActionPlan,
     ActorKind,
     ArtifactProvenance,
+    BeneficiaryGraphAssessment,
     EvidenceScope,
     FidelityReport,
     GraphScope,
@@ -36,6 +37,9 @@ class SandboxResult:
     trace: SyntheticTrace
     provenance: list[ArtifactProvenance] = field(default_factory=list[ArtifactProvenance])
     media_observations: list[MediaObservation] = field(default_factory=list[MediaObservation])
+    graph_assessments: list[BeneficiaryGraphAssessment] = field(
+        default_factory=list[BeneficiaryGraphAssessment]
+    )
 
 
 class _AppScamProfile(TypedDict):
@@ -60,6 +64,7 @@ class ActorSandbox:
         events: list[TraceEvent] = []
         provenance: list[ArtifactProvenance] = []
         observations: list[MediaObservation] = []
+        graph_assessments: list[BeneficiaryGraphAssessment] = []
         outputs: dict[str, list[str]] = {}
         seq = 0
 
@@ -276,6 +281,7 @@ class ActorSandbox:
                 motif = str(action.parameters.get("graph_motif", "mule_fanin"))
                 decision_at = start + timedelta(seconds=second)
                 assessment = graph_for_motif(motif, payee_id, decision_at).assess(payee_id, decision_at, scopes)
+                graph_assessments.append(assessment)
                 emit(
                     "beneficiary.risk.assessed",
                     {**assessment.features, "payee_id": payee_id, "risk_scope": "+".join(s.value for s in scopes), "snapshot_id": assessment.snapshot_id, "graph_evidence_refs": assessment.evidence_event_ids},
@@ -375,7 +381,12 @@ class ActorSandbox:
                 notes=["AI-assisted APP scam with realistic payment-time evidence boundaries"],
             ),
         )
-        return SandboxResult(trace=trace, provenance=provenance, media_observations=observations)
+        return SandboxResult(
+            trace=trace,
+            provenance=provenance,
+            media_observations=observations,
+            graph_assessments=graph_assessments,
+        )
 
     def _validate_dependencies(self, action: ToolAction, outputs: dict[str, list[str]]) -> None:
         missing = [dependency for dependency in action.depends_on if dependency not in outputs]

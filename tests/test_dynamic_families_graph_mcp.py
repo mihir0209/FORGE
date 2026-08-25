@@ -31,6 +31,9 @@ def test_dynamic_family_registers_without_runtime_branch(tmp_path: Path) -> None
     assert loaded.definition_sha256 == family.definition_sha256
     assert build_app_plan(loaded, "cycle-new").actions
 
+    reloaded = FamilyRegistry(tmp_path).get("ai_invoice_avatar")
+    assert reloaded.definition_sha256 == family.definition_sha256
+
 
 def test_family_version_is_immutable(tmp_path: Path) -> None:
     from forge.families import define_family

@@ -57,6 +57,16 @@ export interface CycleDetail {
   detection_track: "behavioral_payment" | "ai_assisted_app" | "bank_controlled_media";
   evidence_capabilities: string[];
   feature_schema_version: string;
+  graph_assessment?: {
+    assessment_id: string;
+    beneficiary_ref: string;
+    decision_at: string;
+    scopes: string[];
+    snapshot_id: string;
+    snapshot_sha256: string;
+    features: Record<string, number>;
+    evidence_event_ids: string[];
+  } | null;
 }
 
 export interface CoverageCell {

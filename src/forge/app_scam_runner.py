@@ -17,7 +17,7 @@ from forge.contracts.contracts import (
 )
 from forge.detect import gate_score, trace_features
 from forge.detect.incumbent import load_incumbent
-from forge.families import FamilyRegistry, build_app_plan
+from forge.families import build_app_plan, family_registry_from_env
 from forge.feature_schema import FEATURE_SCHEMA_VERSION
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ _VARIANTS = {"safe_account": "ai_bank_impersonation", "family_emergency": "ai_fa
 
 def app_scam_strategy(seed: int, variant: str = "safe_account") -> StrategySpec:
     slug = _VARIANTS.get(variant, variant)
-    family = FamilyRegistry().get(slug)
+    family = family_registry_from_env().get(slug)
     return StrategySpec(
         strategy_id=f"strategy-app-{slug}-{seed}",
         fraud_objective=(
@@ -76,7 +76,7 @@ def run_app_scam_cycle(
     variant: str = "safe_account",
 ) -> CycleRecord:
     strategy = app_scam_strategy(seed, variant)
-    family = FamilyRegistry().get(strategy.attack_family, strategy.family_version)
+    family = family_registry_from_env().get(strategy.attack_family, strategy.family_version)
     sandbox_result = ActorSandbox(store).execute(
         build_app_plan(family, cycle_id), WorldSeed(master_seed=seed), cycle_id=cycle_id
     )
@@ -102,6 +102,7 @@ def run_app_scam_cycle(
             EvidenceCapability.BENEFICIARY_NETWORK,
             EvidenceCapability.SYSTEM_CALL_STATE,
         ],
+        graph_assessment=(sandbox_result.graph_assessments[-1] if sandbox_result.graph_assessments else None),
         accepted=gate.coverage.value != "covered",
     )
     registry.record_cycle(record)

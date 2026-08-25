@@ -610,6 +610,7 @@ class CycleRecord(Strict):
     evidence_capabilities: list[EvidenceCapability] = Field(
         default_factory=list[EvidenceCapability]
     )
+    graph_assessment: BeneficiaryGraphAssessment | None = None
     accepted: bool
     recorded_at: datetime = Field(default_factory=_now)
 
