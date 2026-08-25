@@ -12,7 +12,7 @@ from forge.contracts.contracts import (
     ObservedTraceView,
 )
 from forge.detect.base import Detector
-from forge.signals import FEATURE_NAMES
+from forge.feature_schema import FEATURE_NAMES
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -67,6 +67,9 @@ def trace_features(view: ObservedTraceView) -> dict[str, float]:
         # per-customer cash-out attempts (victim repeats; legit rarely >1/day)
         "cashout_pressure": min(max(cashouts_by_customer.values(), default=0) / 2.0, 1.0),
         "volume": min(len(payments) / 50.0, 1.0),
+        "unknown_peer_network": signals.get("unknown_peer_network", 0.0),
+        "media_liveness_anomaly": signals.get("media_liveness_anomaly", 0.0),
+        "transaction_during_call": signals.get("transaction_during_call", 0.0),
         "first_time_payee": signals.get("first_time_payee", 0.0),
         "behavioral_coaching_risk": signals.get("behavioral_coaching_risk", 0.0),
         "beneficiary_network_risk": signals.get("beneficiary_network_risk", 0.0),
@@ -83,6 +86,9 @@ _RULE_WEIGHTS: Mapping[str, float] = {
     "off_hours_focus": 0.05,
     "cashout_pressure": 0.10,
     "volume": 0.02,
+    "unknown_peer_network": 0.05,
+    "media_liveness_anomaly": 0.07,
+    "transaction_during_call": 0.04,
     "first_time_payee": 0.10,
     "behavioral_coaching_risk": 0.18,
     "beneficiary_network_risk": 0.24,

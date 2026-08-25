@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from forge.contracts.contracts import (
     ActionPlan,
@@ -34,6 +34,16 @@ class SandboxResult:
     trace: SyntheticTrace
     provenance: list[ArtifactProvenance] = field(default_factory=list[ArtifactProvenance])
     media_observations: list[MediaObservation] = field(default_factory=list[MediaObservation])
+
+
+class _AppScamProfile(TypedDict):
+    call_active: bool
+    verification: str
+    behavioral_distance: float
+    network_risk: float
+    warning_overridden: bool
+    amount_minor: int
+    balance_minor: int
 
 
 class ActorSandbox:
@@ -174,10 +184,10 @@ class ActorSandbox:
                     "device.call_state.observed",
                     {
                         "session_id": app_session_id,
-                        "source": "ios_callkit",
-                        "state_available": True,
-                        "active": True,
-                        "direction": "incoming",
+                        "source": str(action.parameters.get("source", "ios_callkit")),
+                        "state_available": bool(action.parameters.get("state_available", True)),
+                        "active": bool(action.parameters.get("active", True)),
+                        "direction": str(action.parameters.get("direction", "incoming")),
                         "caller_identity_available": False,
                         "provider_identity_available": False,
                         "media_available": False,
@@ -197,8 +207,12 @@ class ActorSandbox:
                     {
                         "session_id": app_session_id,
                         "payee_id": payee_id,
-                        "first_time_payee": True,
-                        "entry_method": "clipboard_paste",
+                        "first_time_payee": bool(
+                            action.parameters.get("first_time_payee", True)
+                        ),
+                        "entry_method": str(
+                            action.parameters.get("entry_method", "clipboard_paste")
+                        ),
                     },
                     private={"payee_is_mule": True},
                     actor_kind=ActorKind.CUSTOMER,
@@ -215,7 +229,7 @@ class ActorSandbox:
                     {
                         "session_id": app_session_id,
                         "payee_id": payee_id,
-                        "result": "close_match",
+                        "result": str(action.parameters.get("result", "close_match")),
                         "entered_name_token": "name-entered-1",
                         "matched_name_token": "name-held-1",
                     },
@@ -232,11 +246,17 @@ class ActorSandbox:
                     "app.behavior.sampled",
                     {
                         "session_id": app_session_id,
-                        "payee_field_pasted": True,
-                        "confirmation_dwell_seconds": 31.0,
-                        "field_correction_count": 4,
-                        "navigation_directness": 0.96,
-                        "behavioral_distance": 0.82,
+                        "payee_field_pasted": bool(action.parameters.get("pasted", True)),
+                        "confirmation_dwell_seconds": float(
+                            action.parameters.get("dwell_seconds", 31.0)
+                        ),
+                        "field_correction_count": int(action.parameters.get("corrections", 4)),
+                        "navigation_directness": float(
+                            action.parameters.get("navigation_directness", 0.96)
+                        ),
+                        "behavioral_distance": float(
+                            action.parameters.get("behavioral_distance", 0.82)
+                        ),
                     },
                     actor_kind=ActorKind.CUSTOMER,
                     stage=LifecycleStage.PAYMENT,
@@ -251,11 +271,15 @@ class ActorSandbox:
                     "beneficiary.risk.assessed",
                     {
                         "payee_id": payee_id,
-                        "account_age_days": 6,
-                        "unique_senders_1h": 8,
-                        "rapid_pass_through_ratio": 0.88,
-                        "network_risk_score": 0.91,
-                        "risk_scope": "consortium",
+                        "account_age_days": int(action.parameters.get("account_age_days", 6)),
+                        "unique_senders_1h": int(action.parameters.get("unique_senders_1h", 8)),
+                        "rapid_pass_through_ratio": float(
+                            action.parameters.get("rapid_pass_through_ratio", 0.88)
+                        ),
+                        "network_risk_score": float(
+                            action.parameters.get("network_risk_score", 0.91)
+                        ),
+                        "risk_scope": str(action.parameters.get("risk_scope", "consortium")),
                     },
                     actor_kind=ActorKind.SYSTEM,
                     stage=LifecycleStage.PAYMENT,
@@ -272,8 +296,10 @@ class ActorSandbox:
                         "session_id": app_session_id,
                         "intervention_id": "safe-account-warning-v1",
                         "reason": "new_payee_and_recipient_network_risk",
-                        "response": "continue",
-                        "warning_overridden": True,
+                        "response": str(action.parameters.get("response", "continue")),
+                        "warning_overridden": bool(
+                            action.parameters.get("warning_overridden", True)
+                        ),
                     },
                     private={"customer_was_coached_to_override": True},
                     actor_kind=ActorKind.CUSTOMER,
@@ -297,22 +323,29 @@ class ActorSandbox:
                         "device_id": "customer-device-1",
                         "session_id": app_session_id,
                         "payee_id": payee_id,
-                        "available_balance_minor": 90_000,
+                        "available_balance_minor": int(
+                            action.parameters.get("available_balance_minor", 90_000)
+                        ),
                     },
                     private={"coerced_by_ai_impersonation": True},
                     actor_kind=ActorKind.CUSTOMER,
                     stage=LifecycleStage.PAYMENT,
                     seconds=second,
                 )
+                fraudulent = bool(action.parameters.get("fraudulent", True))
+                outcome = str(action.parameters.get("outcome", "held" if fraudulent else "authorized"))
                 emit(
-                    "payment.held",
+                    f"payment.{outcome}",
                     {
                         **payment.payload,
-                        "state": "held",
-                        "hold_reason": "scam_risk_review",
+                        "state": outcome,
+                        **({"hold_reason": "scam_risk_review"} if outcome == "held" else {}),
                         "ref_event_ids": [payment.event_id],
                     },
-                    private={"fraud_ground_truth": True, "loss_prevented": True},
+                    private={
+                        "fraud_ground_truth": fraudulent,
+                        "loss_prevented": fraudulent and outcome == "held",
+                    },
                     actor_kind=ActorKind.SYSTEM,
                     stage=LifecycleStage.PAYMENT,
                     seconds=second + 2,
@@ -352,8 +385,46 @@ class ActorSandbox:
             raise ValueError(f"action {action.action_id} missing dependencies: {missing}")
 
 
-def ai_assisted_app_scam_plan(strategy_id: str, cycle_id: str) -> ActionPlan:
+def ai_assisted_app_scam_plan(
+    strategy_id: str, cycle_id: str, *, variant: str = "safe_account"
+) -> ActionPlan:
     """Prepare impersonation off-site, then exercise only realistic bank-visible signals."""
+    profiles: dict[str, _AppScamProfile] = {
+        "safe_account": {
+            "call_active": True,
+            "verification": "close_match",
+            "behavioral_distance": 0.82,
+            "network_risk": 0.91,
+            "warning_overridden": True,
+            "amount_minor": 75_000,
+            "balance_minor": 90_000,
+        },
+        "family_emergency": {
+            "call_active": True,
+            "verification": "match",
+            "behavioral_distance": 0.76,
+            "network_risk": 0.73,
+            "warning_overridden": True,
+            "amount_minor": 35_000,
+            "balance_minor": 80_000,
+        },
+        "investment_coaching": {
+            "call_active": False,
+            "verification": "match",
+            "behavioral_distance": 0.88,
+            "network_risk": 0.86,
+            "warning_overridden": True,
+            "amount_minor": 60_000,
+            "balance_minor": 100_000,
+        },
+    }
+    profile = profiles.get(variant)
+    if profile is None:
+        raise ValueError(f"unknown APP scam variant: {variant}")
+    jitter = int(hashlib.sha256(cycle_id.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
+    behavioral_distance = min(0.99, profile["behavioral_distance"] + 0.08 * (jitter - 0.5))
+    network_risk = min(0.99, profile["network_risk"] + 0.10 * (0.5 - jitter))
+    amount_minor = int(profile["amount_minor"] * (0.9 + 0.2 * jitter))
     return ActionPlan(
         plan_id=f"plan-{cycle_id}",
         strategy_id=strategy_id,
@@ -374,16 +445,115 @@ def ai_assisted_app_scam_plan(strategy_id: str, cycle_id: str) -> ActionPlan:
             ),
             ToolAction(action_id="app-session", tool=ToolKind.APP_SESSION_START),
             ToolAction(action_id="attest", tool=ToolKind.DEVICE_ATTEST),
-            ToolAction(action_id="call-state", tool=ToolKind.CALL_STATE_OBSERVE),
+            ToolAction(
+                action_id="call-state",
+                tool=ToolKind.CALL_STATE_OBSERVE,
+                parameters={"active": profile["call_active"]},
+            ),
             ToolAction(action_id="payee", tool=ToolKind.PAYEE_ADD),
-            ToolAction(action_id="payee-check", tool=ToolKind.PAYEE_VERIFY),
-            ToolAction(action_id="behavior", tool=ToolKind.BEHAVIOR_SAMPLE),
-            ToolAction(action_id="recipient-risk", tool=ToolKind.BENEFICIARY_RISK_QUERY),
-            ToolAction(action_id="intervention", tool=ToolKind.SCAM_INTERVENE),
+            ToolAction(
+                action_id="payee-check",
+                tool=ToolKind.PAYEE_VERIFY,
+                parameters={"result": profile["verification"]},
+            ),
+            ToolAction(
+                action_id="behavior",
+                tool=ToolKind.BEHAVIOR_SAMPLE,
+                parameters={"behavioral_distance": behavioral_distance},
+            ),
+            ToolAction(
+                action_id="recipient-risk",
+                tool=ToolKind.BENEFICIARY_RISK_QUERY,
+                parameters={"network_risk_score": network_risk},
+            ),
+            ToolAction(
+                action_id="intervention",
+                tool=ToolKind.SCAM_INTERVENE,
+                parameters={"warning_overridden": profile["warning_overridden"]},
+            ),
             ToolAction(
                 action_id="payment",
                 tool=ToolKind.PAYMENT_INITIATE,
-                parameters={"amount_minor": 75_000, "currency": "INR"},
+                parameters={
+                    "amount_minor": amount_minor,
+                    "available_balance_minor": profile["balance_minor"],
+                    "currency": "INR",
+                    "fraudulent": True,
+                    "outcome": "held",
+                },
+            ),
+        ],
+    )
+
+
+def legitimate_app_payment_plan(
+    strategy_id: str,
+    cycle_id: str,
+    *,
+    active_call: bool,
+    first_time_payee: bool = False,
+) -> ActionPlan:
+    """Legitimate control using the same observable APP evidence contract."""
+    return ActionPlan(
+        plan_id=f"plan-{cycle_id}",
+        strategy_id=strategy_id,
+        actor_id="simulated-customer-control",
+        actions=[
+            ToolAction(action_id="app-session", tool=ToolKind.APP_SESSION_START),
+            ToolAction(action_id="attest", tool=ToolKind.DEVICE_ATTEST),
+            ToolAction(
+                action_id="call-state",
+                tool=ToolKind.CALL_STATE_OBSERVE,
+                parameters={"active": active_call},
+            ),
+            ToolAction(
+                action_id="payee",
+                tool=ToolKind.PAYEE_ADD,
+                parameters={
+                    "first_time_payee": first_time_payee,
+                    "entry_method": "manual_entry" if first_time_payee else "saved_payee",
+                },
+            ),
+            ToolAction(
+                action_id="payee-check",
+                tool=ToolKind.PAYEE_VERIFY,
+                parameters={"result": "match"},
+            ),
+            ToolAction(
+                action_id="behavior",
+                tool=ToolKind.BEHAVIOR_SAMPLE,
+                parameters={
+                    "pasted": False,
+                    "dwell_seconds": 4.0,
+                    "corrections": 0,
+                    "behavioral_distance": 0.12,
+                },
+            ),
+            ToolAction(
+                action_id="recipient-risk",
+                tool=ToolKind.BENEFICIARY_RISK_QUERY,
+                parameters={
+                    "account_age_days": 1200,
+                    "unique_senders_1h": 1,
+                    "rapid_pass_through_ratio": 0.02,
+                    "network_risk_score": 0.08,
+                },
+            ),
+            ToolAction(
+                action_id="intervention",
+                tool=ToolKind.SCAM_INTERVENE,
+                parameters={"response": "acknowledged", "warning_overridden": False},
+            ),
+            ToolAction(
+                action_id="payment",
+                tool=ToolKind.PAYMENT_INITIATE,
+                parameters={
+                    "amount_minor": 8_000,
+                    "available_balance_minor": 100_000,
+                    "currency": "INR",
+                    "fraudulent": False,
+                    "outcome": "authorized",
+                },
             ),
         ],
     )

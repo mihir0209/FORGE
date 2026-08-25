@@ -21,9 +21,10 @@ def plan_strategy(
     strategy: StrategySpec,
     cycle_id: str,
     reasoning: ReasoningClient | None = None,
+    variant: str = "safe_account",
 ) -> ActionPlan:
     if reasoning is None:
-        return ai_assisted_app_scam_plan(strategy.strategy_id, cycle_id)
+        return ai_assisted_app_scam_plan(strategy.strategy_id, cycle_id, variant=variant)
     return reasoning.complete(
         ActionPlan,
         _SYSTEM,
@@ -38,6 +39,7 @@ def execute_strategy(
     seed: WorldSeed,
     sandbox: ActorSandbox,
     reasoning: ReasoningClient | None = None,
+    variant: str = "safe_account",
 ) -> SandboxResult:
-    plan = plan_strategy(strategy, cycle_id, reasoning)
+    plan = plan_strategy(strategy, cycle_id, reasoning, variant)
     return sandbox.execute(plan, seed, cycle_id=cycle_id)

@@ -17,13 +17,23 @@ from forge.redteam.fixtures import default_draft
 def _cmd_train(args: argparse.Namespace) -> int:
     from pathlib import Path as _Path
 
-    from forge.detect.dataset import build_dataset
+    from forge.detect.dataset import build_dataset, build_family_holdout_dataset
     from forge.detect.promotion import evaluate, install_if_passed
     from forge.detect.train import train_detector
     from forge.kb import SQLiteRegistry
 
     reg = SQLiteRegistry(_Path(args.db))
-    ref = build_dataset(reg, n_negatives=args.n_negatives)
+    ref = (
+        build_family_holdout_dataset(
+            reg,
+            n_negatives_per_split=args.n_negatives_per_split,
+            dataset_seed=args.seed,
+            calibration_family=args.calibration_family,
+            test_family=args.test_family,
+        )
+        if args.protocol == "attack-family-disjoint-holdout"
+        else build_dataset(reg, n_negatives=args.n_negatives, dataset_seed=args.seed)
+    )
     report = train_detector(ref)
     verdict = evaluate(report, reg)
     ok = install_if_passed(report, verdict)
@@ -35,6 +45,10 @@ def _cmd_train(args: argparse.Namespace) -> int:
                 "passed": verdict.passed,
                 "installed": ok,
                 "checks": verdict.checks,
+                "evaluation_protocol": report.evaluation_protocol,
+                "feature_schema_version": report.feature_schema_version,
+                "held_out_families": report.held_out_families,
+                "dataset_manifest_path": report.dataset_manifest_path,
             },
             indent=2,
         )
@@ -84,6 +98,7 @@ def _cmd_app_scam(args: argparse.Namespace) -> int:
         cycle_id=args.cycle_id or f"cycle-app-{args.seed}",
         registry=registry,
         store=store,
+        variant=args.variant,
     )
     print(
         json.dumps(
@@ -122,11 +137,25 @@ def main(argv: list[str] | None = None) -> int:
     app_scam.add_argument("--seed", type=int, required=True)
     app_scam.add_argument("--cycle-id")
     app_scam.add_argument("--db", default="data/registry.sqlite")
+    app_scam.add_argument(
+        "--variant",
+        choices=["safe_account", "family_emergency", "investment_coaching"],
+        default="safe_account",
+    )
     app_scam.set_defaults(func=_cmd_app_scam)
 
     trn = sub.add_parser("train", help="run one training round from the current registry")
     trn.add_argument("--db", default="data/registry.sqlite")
     trn.add_argument("--n-negatives", type=int, default=80)
+    trn.add_argument("--n-negatives-per-split", type=int, default=20)
+    trn.add_argument("--seed", type=int, default=0)
+    trn.add_argument("--calibration-family")
+    trn.add_argument("--test-family")
+    trn.add_argument(
+        "--protocol",
+        choices=["legacy-stratified", "attack-family-disjoint-holdout"],
+        default="attack-family-disjoint-holdout",
+    )
     trn.set_defaults(func=_cmd_train)
 
     args = parser.parse_args(argv)

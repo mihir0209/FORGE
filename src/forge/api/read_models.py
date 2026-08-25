@@ -38,6 +38,9 @@ def cycles() -> list[dict[str, Any]]:
                 "gate_action": cycle.gate_result.action.value,
                 "coverage": cycle.gate_result.coverage.value,
                 "detector_id": cycle.gate_result.detector_id,
+                "detection_track": cycle.detection_track.value,
+                "evidence_capabilities": [c.value for c in cycle.evidence_capabilities],
+                "feature_schema_version": cycle.feature_schema_version,
             }
         )
     return out
@@ -102,25 +105,41 @@ def model_card() -> dict[str, Any]:
     report = (
         cast("dict[str, Any]", json.loads(report_path.read_text())) if report_path.exists() else {}
     )
-    from forge.signals import FEATURE_NAMES
+    from forge.feature_schema import FEATURE_NAMES
 
     feature_names = list(meta.get("feature_names", []))
     compatible = feature_names == list(FEATURE_NAMES)
     if not compatible:
+        from forge.feature_schema import KNOWN_SCHEMAS
+
+        known_legacy = tuple(feature_names) in KNOWN_SCHEMAS.values()
         return {
-            "detector_id": "rule-baseline-v1",
-            "kind": "rules",
+            "detector_id": (
+                f"compatible:{meta['candidate_id']}+rule-baseline-v1"
+                if known_legacy
+                else "rule-baseline-v1"
+            ),
+            "kind": "legacy-compatible-ensemble" if known_legacy else "rules",
             "promoted": False,
             "schema_compatible": False,
+            "legacy_compatible": known_legacy,
+            "compatibility_policy": "max_score" if known_legacy else None,
             "incompatible_candidate_id": meta["candidate_id"],
             "feature_names": feature_names,
             "metrics": {},
             "incompatible_candidate_metrics": report,
         }
+    receipt_path = data_dir / "models" / "promotion-verdict.json"
+    receipt = (
+        cast("dict[str, Any]", json.loads(receipt_path.read_text()))
+        if receipt_path.exists()
+        else {}
+    )
+    promoted = bool(receipt.get("passed") and receipt.get("candidate_id") == meta["candidate_id"])
     return {
         "detector_id": meta["candidate_id"],
         "kind": "lightgbm-calibrated",
-        "promoted": compatible,
+        "promoted": promoted,
         "schema_compatible": compatible,
         "feature_names": feature_names,
         "artifact_path": meta["artifact_path"],

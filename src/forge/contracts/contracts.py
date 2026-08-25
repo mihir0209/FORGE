@@ -11,7 +11,7 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -34,6 +34,22 @@ class Coverage(StrEnum):
     COVERED = "covered"
     PARTIAL = "partial"
     BLIND_SPOT = "blind_spot"
+
+
+class DetectionTrack(StrEnum):
+    BEHAVIORAL_PAYMENT = "behavioral_payment"
+    AI_ASSISTED_APP = "ai_assisted_app"
+    BANK_CONTROLLED_MEDIA = "bank_controlled_media"
+
+
+class EvidenceCapability(StrEnum):
+    PAYMENT_HISTORY = "payment_history"
+    DEVICE_INTEGRITY = "device_integrity"
+    APP_BEHAVIOR = "app_behavior"
+    PAYEE_VERIFICATION = "payee_verification"
+    BENEFICIARY_NETWORK = "beneficiary_network"
+    SYSTEM_CALL_STATE = "system_call_state"
+    BANK_CONTROLLED_MEDIA = "bank_controlled_media"
 
 
 class Action(StrEnum):
@@ -279,6 +295,13 @@ class DatasetRef(Strict):
     test_path: str
     rows: int
     split_protocol: str = "legacy-stratified"
+    feature_schema_version: str = "forge-feature-v2"
+    manifest_path: str | None = None
+    held_out_families: list[str] = Field(default_factory=list)
+    split_positive_counts: dict[str, int] = Field(default_factory=dict)
+    included_tracks: list[DetectionTrack] = Field(default_factory=list[DetectionTrack])
+    train_tracks: list[DetectionTrack] = Field(default_factory=list[DetectionTrack])
+    parquet_sha256: dict[str, str] = Field(default_factory=dict)
 
 
 class CandidateReport(Strict):
@@ -296,6 +319,14 @@ class CandidateReport(Strict):
     p95_latency_ms: float
     artifact_path: str
     evaluation_protocol: str = "legacy-stratified"
+    feature_schema_version: str = "forge-feature-v2"
+    dataset_manifest_path: str | None = None
+    held_out_families: list[str] = Field(default_factory=list)
+    prediction_ledger_path: str | None = None
+    evaluation_summary_path: str | None = None
+    artifact_sha256: str | None = None
+    prediction_ledger_sha256: str | None = None
+    evaluation_summary_sha256: str | None = None
 
 
 class PromotionVerdict(Strict):
@@ -520,8 +551,34 @@ class CycleRecord(Strict):
     blue_report: BlueReport
     gate_result: GateResult
     detector_features: dict[str, float] = Field(default_factory=dict)
+    feature_schema_version: str = "legacy-unversioned"
+    detection_track: DetectionTrack = DetectionTrack.BEHAVIORAL_PAYMENT
+    evidence_capabilities: list[EvidenceCapability] = Field(
+        default_factory=list[EvidenceCapability]
+    )
     accepted: bool
     recorded_at: datetime = Field(default_factory=_now)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _infer_historical_track(cls, data: Any) -> Any:
+        if not isinstance(data, dict) or "detection_track" in data:
+            return cast("Any", data)
+        raw = cast("dict[str, Any]", data)
+        strategy: Any = raw.get("strategy")
+        strategy_data = cast("dict[str, Any]", strategy) if isinstance(strategy, dict) else {}
+        family = str(strategy_data.get("attack_family", ""))
+        migrated: dict[str, Any] = dict(raw)
+        if family == "deepfake_video_call_payment":
+            migrated["detection_track"] = DetectionTrack.BANK_CONTROLLED_MEDIA
+            migrated["evidence_capabilities"] = []
+        elif family == "ai_assisted_app_scam" or family.startswith("ai_"):
+            migrated["detection_track"] = DetectionTrack.AI_ASSISTED_APP
+            migrated["evidence_capabilities"] = []
+        else:
+            migrated["detection_track"] = DetectionTrack.BEHAVIORAL_PAYMENT
+            migrated["evidence_capabilities"] = []
+        return migrated
 
 
 class EvGapBriefCreated(Strict):
@@ -686,6 +743,7 @@ class EvCycleRequested(Strict):
     seed: int
     brief_id: str | None = None
     scenario: str | None = None
+    variant: str | None = None
 
 
 class EvCycleAccepted(Strict):

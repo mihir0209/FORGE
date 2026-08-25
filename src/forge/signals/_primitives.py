@@ -16,24 +16,6 @@ from forge.contracts.contracts import ObservedTraceView, Signal, TraceEvent
 _BURST_WINDOW = timedelta(minutes=30)
 _BURST_COUNT = 4  # payments within window that constitute a burst
 
-# Canonical feature list derived from these primitives.
-# `detect` must not hand-maintain a second copy.
-FEATURE_NAMES: tuple[str, ...] = (
-    "burst",
-    "new_device",
-    "refund_pressure",
-    "off_hours_focus",
-    "cashout_pressure",
-    "volume",
-    "first_time_payee",
-    "behavioral_coaching_risk",
-    "beneficiary_network_risk",
-    "warning_override",
-    "balance_depletion",
-    "active_external_call",
-)
-
-
 def _payments(view: ObservedTraceView) -> list[TraceEvent]:
     return [e for e in view.events if e.kind == "payment"]
 
@@ -214,6 +196,49 @@ def app_scam_signals(view: ObservedTraceView) -> list[Signal]:
     return out
 
 
+def bank_controlled_media_signals(view: ObservedTraceView) -> list[Signal]:
+    """Optional media/network evidence when a bank controls the communication channel."""
+    out: list[Signal] = []
+    for event in view.events:
+        p = event.payload
+        if event.kind == "network.observed":
+            if int(p.get("history_asn_seen_count", 1)) == 0 and int(
+                p.get("history_ip_seen_count", 1)
+            ) == 0:
+                out.append(
+                    Signal(
+                        name="unknown_peer_network",
+                        description="bank-controlled session peer uses an unseen network",
+                        evidence_refs=[event.event_id],
+                        strength=0.85 if bool(p.get("is_hosting_provider")) else 0.65,
+                    )
+                )
+        elif event.kind == "media.authenticity.assessed":
+            score = float(p.get("anomaly_score", 0.0))
+            if score >= 0.7:
+                out.append(
+                    Signal(
+                        name="media_liveness_anomaly",
+                        description=(
+                            f"bank-controlled media anomaly score {score:.2f} from "
+                            f"{p.get('detector_version', 'unknown detector')}"
+                        ),
+                        evidence_refs=[event.event_id],
+                        strength=min(score, 1.0),
+                    )
+                )
+        elif event.kind == "bank.communication.payment_overlap" and bool(p.get("active")):
+            out.append(
+                Signal(
+                    name="transaction_during_call",
+                    description="payment overlapped a bank-controlled communication session",
+                    evidence_refs=[event.event_id],
+                    strength=0.75,
+                )
+            )
+    return out
+
+
 def all_signals(view: ObservedTraceView) -> list[Signal]:
     merged = (
         velocity_bursts(view)
@@ -221,6 +246,7 @@ def all_signals(view: ObservedTraceView) -> list[Signal]:
         + new_device_then_payment(view)
         + refund_chains(view)
         + app_scam_signals(view)
+        + bank_controlled_media_signals(view)
     )
     seen: set[str] = set()
     unique = [s for s in merged if not (s.name in seen or seen.add(s.name))]

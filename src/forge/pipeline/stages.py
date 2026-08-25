@@ -23,10 +23,12 @@ from forge.contracts.contracts import (
     BlueReport,
     Coverage,
     CycleRecord,
+    DetectionTrack,
     EvCorpusThresholdReached,
     EvCycleAccepted,
     EvCycleRequested,
     EvGateScored,
+    EvidenceCapability,
     EvInvestigationCompleted,
     EvStrategyProposed,
     EvTraceCompleted,
@@ -40,6 +42,7 @@ from forge.contracts.contracts import (
 )
 from forge.detect import gate_score, trace_features
 from forge.detect.incumbent import load_incumbent
+from forge.feature_schema import FEATURE_SCHEMA_VERSION
 from forge.gapmine import fallback_brief, rank
 from forge.ids import cycle_id_base, strategy_id_for
 from forge.kb import Registry, registry_from_env, search
@@ -178,6 +181,7 @@ def stage_app_scam_cycle(data: dict[str, Any]) -> dict[str, object]:
         cycle_id=cycle_id,
         registry=_registry(),
         store=artifact_store_from_env(),
+        variant=str(data.get("variant", "safe_account")),
     )
     supervisor = supervisor_from_env()
     if supervisor is not None:
@@ -265,6 +269,9 @@ def stage_finalize(data: dict[str, Any]) -> dict[str, object]:
         blue_report=report,
         gate_result=ev.gate,
         detector_features=trace_features(trace.observed_view()),
+        feature_schema_version=FEATURE_SCHEMA_VERSION,
+        detection_track=DetectionTrack.BEHAVIORAL_PAYMENT,
+        evidence_capabilities=[EvidenceCapability.PAYMENT_HISTORY],
         accepted=accepted,
     )
     reg.record_cycle(record)
@@ -310,12 +317,12 @@ def save_trace(trace_id: str, payload: dict[str, Any]) -> str:
 
 def stage_build_dataset(data: dict[str, Any]) -> dict[str, object]:
     """corpus.threshold_reached -> dataset built."""
-    from forge.detect.dataset import build_dataset as _build
+    from forge.detect.dataset import build_family_holdout_dataset as _build
 
     # registry is the source of truth; seeds for negatives come from event or defaults
     reg = _registry()
     seed = int(data.get("seed", 0))
-    ref = _build(reg, n_negatives=80, dataset_seed=seed)
+    ref = _build(reg, n_negatives_per_split=40, dataset_seed=seed)
     return ref.model_dump(mode="json")
 
 

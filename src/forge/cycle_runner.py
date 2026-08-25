@@ -13,13 +13,16 @@ from typing import TYPE_CHECKING
 from forge.blueteam import investigate
 from forge.contracts.contracts import (
     CycleRecord,
+    DetectionTrack,
     DraftStrategy,
+    EvidenceCapability,
     GapBrief,
     KBQuery,
     NoveltyVerdict,
     WorldSeed,
 )
 from forge.detect import RuleBaselineDetector, gate_score, trace_features
+from forge.feature_schema import FEATURE_SCHEMA_VERSION
 from forge.gapmine import fallback_brief, rank
 from forge.ids import cycle_id_base, strategy_id_for
 from forge.kb import Registry, search
@@ -99,6 +102,9 @@ def run_offline_cycle(
         blue_report=report,
         gate_result=gate,
         detector_features=trace_features(view),
+        feature_schema_version=FEATURE_SCHEMA_VERSION,
+        detection_track=DetectionTrack.BEHAVIORAL_PAYMENT,
+        evidence_capabilities=[EvidenceCapability.PAYMENT_HISTORY],
         accepted=accepted,
     )
     registry.record_cycle(record)

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -23,7 +24,8 @@ from sklearn.metrics import (
 
 from forge.config import settings
 from forge.contracts.contracts import CandidateReport
-from forge.signals import FEATURE_NAMES
+from forge.detect.evaluation import summarize_predictions
+from forge.feature_schema import FEATURE_NAMES
 
 if TYPE_CHECKING:
     from sklearn.base import BaseEstimator
@@ -99,6 +101,37 @@ def train_detector(
     artifact = CANDIDATES_ROOT / f"{cid}.joblib"
     artifact.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(calibrated, artifact)
+    artifact_sha256 = hashlib.sha256(artifact.read_bytes()).hexdigest()
+
+    prediction_ledger_path: str | None = None
+    evaluation_summary_path: str | None = None
+    if dataset.manifest_path:
+        manifest: dict[str, Any] = json.loads(Path(dataset.manifest_path).read_text())
+        test_rows = [row for row in manifest["rows"] if row["split"] == "test"]
+        if len(test_rows) != len(proba):
+            raise ValueError("test manifest row count does not match predictions")
+        ledger = pd.DataFrame(
+            [
+                {
+                    **row,
+                    "score": float(score),
+                    "label": int(label),
+                }
+                for row, score, label in zip(test_rows, proba, y_test, strict=True)
+            ]
+        )
+        ledger_path = artifact.with_suffix(".predictions.parquet")
+        ledger.to_parquet(ledger_path)
+        summary = summarize_predictions(ledger, bootstrap_samples=200, seed=0)
+        summary_path = artifact.with_suffix(".evaluation.json")
+        summary_path.write_text(json.dumps(summary, indent=2))
+        prediction_ledger_path = str(ledger_path)
+        evaluation_summary_path = str(summary_path)
+        prediction_ledger_sha256 = hashlib.sha256(ledger_path.read_bytes()).hexdigest()
+        evaluation_summary_sha256 = hashlib.sha256(summary_path.read_bytes()).hexdigest()
+    else:
+        prediction_ledger_sha256 = None
+        evaluation_summary_sha256 = None
 
     report = CandidateReport(
         candidate_id=cid,
@@ -124,6 +157,14 @@ def train_detector(
         p95_latency_ms=p95,
         artifact_path=str(artifact),
         evaluation_protocol=dataset.split_protocol,
+        feature_schema_version=dataset.feature_schema_version,
+        dataset_manifest_path=dataset.manifest_path,
+        held_out_families=dataset.held_out_families,
+        prediction_ledger_path=prediction_ledger_path,
+        evaluation_summary_path=evaluation_summary_path,
+        artifact_sha256=artifact_sha256,
+        prediction_ledger_sha256=prediction_ledger_sha256,
+        evaluation_summary_sha256=evaluation_summary_sha256,
     )
     artifact.with_suffix(".json").write_text(report.model_dump_json(indent=2))
     return report

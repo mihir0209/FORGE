@@ -25,6 +25,9 @@ export interface CycleSummary {
   gate_action: string;
   coverage: "covered" | "partial" | "blind_spot";
   detector_id: string;
+  detection_track: "behavioral_payment" | "ai_assisted_app" | "bank_controlled_media";
+  evidence_capabilities: string[];
+  feature_schema_version: string;
 }
 
 export interface CycleDetail {
@@ -51,6 +54,9 @@ export interface CycleDetail {
     coverage: string;
     reason_codes: string[];
   };
+  detection_track: "behavioral_payment" | "ai_assisted_app" | "bank_controlled_media";
+  evidence_capabilities: string[];
+  feature_schema_version: string;
 }
 
 export interface CoverageCell {
@@ -88,6 +94,8 @@ export interface ModelCard {
   kind: string;
   promoted: boolean;
   schema_compatible?: boolean;
+  legacy_compatible?: boolean;
+  compatibility_policy?: string;
   incompatible_candidate_id?: string;
   incompatible_candidate_metrics?: ModelCard["metrics"];
   feature_names?: string[];

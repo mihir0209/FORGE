@@ -149,7 +149,7 @@ function Overview({ cycles, coverage, model, gaps, onCycle }: { cycles: CycleSum
         <div className="cycle-list">
           {cycles.slice(0, 6).map((cycle, index) => <button className="cycle-row" key={cycle.cycle_id} onClick={() => onCycle(cycle.cycle_id)}>
             <span className="run-no">{String(index + 1).padStart(2, "0")}</span>
-            <div><strong>{cycle.family.replaceAll("_", " ")}</strong><small>{cycle.tactic} · {cycle.rail}/{cycle.channel}</small></div>
+            <div><strong>{cycle.family.replaceAll("_", " ")}</strong><small>{cycle.detection_track.replaceAll("_", " ")} · {cycle.rail}/{cycle.channel}</small></div>
             <StatusPill status={cycle.coverage} />
             <b>{pct(cycle.gate_score)}</b>
             <ChevronRight size={14} />
@@ -166,7 +166,7 @@ function Overview({ cycles, coverage, model, gaps, onCycle }: { cycles: CycleSum
       <section className="panel model-mini-panel">
         <PanelHeader icon={BrainCircuit} overline="INCUMBENT" title={model?.detector_id ?? "Loading"} />
         <div className="model-big"><span>ROC-AUC</span><strong>{fmt(model?.metrics?.roc_auc)}</strong></div>
-        <div className="mini-metrics"><span>Recall <b>{fmt(model?.metrics?.recall)}</b></span><span>P95 <b>{fmt(model?.metrics?.p95_latency_ms, 1)}ms</b></span><span>State <b>{model?.promoted ? "PROMOTED" : "BASELINE"}</b></span></div>
+        <div className="mini-metrics"><span>Recall <b>{fmt(model?.metrics?.recall)}</b></span><span>P95 <b>{fmt(model?.metrics?.p95_latency_ms, 1)}ms</b></span><span>State <b>{model?.promoted ? "PROMOTED" : model?.legacy_compatible ? "COMPATIBILITY" : "BASELINE"}</b></span></div>
       </section>
       <section className="panel gap-mini-panel">
         <PanelHeader icon={Target} overline="NEXT OBJECTIVE" title="Gap miner" />
@@ -194,9 +194,9 @@ function AttackLab({ cycles, detail, selected, onSelect }: { cycles: CycleSummar
     <div className="lab-layout"><CycleSelector cycles={cycles} selected={selected} onSelect={onSelect} /><section className="panel dossier">
       {detail ? <><div className="dossier-head"><div><span>STRATEGY DOSSIER</span><h2>{detail.strategy.attack_family.replaceAll("_", " ")}</h2></div><StatusPill status={detail.gate_result.coverage} /></div>
         <div className="objective"><span>FRAUD OBJECTIVE</span><p>{detail.strategy.fraud_objective}</p></div>
-        <div className="tag-row"><code>{detail.strategy.f3.tactic}</code>{detail.strategy.f3.techniques.map((t) => <code key={t}>{t}</code>)}</div>
+        <div className="tag-row"><code>{detail.detection_track.replaceAll("_", " ")}</code><code>{detail.feature_schema_version}</code><code>{detail.strategy.f3.tactic}</code>{detail.strategy.f3.techniques.map((t) => <code key={t}>{t}</code>)}</div>
         <div className="sequence"><h3>Behavioral sequence</h3>{detail.strategy.behavioral_sequence.map((step, i) => <div className="sequence-step" key={step}><b>{String(i + 1).padStart(2, "0")}</b><span>{step}</span><i /></div>)}</div>
-        <div className="dossier-grid"><div><span>GENAI LEVERAGE</span><p>{detail.strategy.genai_leverage}</p></div><div><span>EVASION HYPOTHESIS</span><p>{detail.strategy.evasion_hypothesis}</p></div></div>
+        <div className="dossier-grid"><div><span>GENAI LEVERAGE</span><p>{detail.strategy.genai_leverage}</p></div><div><span>EVIDENCE CAPABILITIES</span><p>{detail.evidence_capabilities.join(" · ") || "not recorded"}</p></div></div>
       </> : <EmptyState title="Select a cycle" copy="Choose an archived run from the evidence ledger." />}
     </section></div>
   </>;
@@ -218,10 +218,10 @@ function ModelDashboard({ model, cycles }: { model: ModelCard | null; cycles: Cy
   const data = cycles.slice().reverse().map((cycle, index) => ({ index: index + 1, score: cycle.gate_score * 100 }));
   const metrics = model?.metrics ?? {};
   return <>
-    <PageTitle kicker="Champion / challenger" title="Model Registry" copy="A candidate cannot touch the gate until it passes a sealed temporal or unseen-family holdout, calibration, control and latency gates." />
+    <PageTitle kicker="Champion / challenger" title="Model Registry" copy="A candidate cannot touch the gate until it passes a sealed temporal, family-disjoint or external holdout, calibration, control and latency gates." />
     <section className="metric-strip model-strip"><Metric label="ROC-AUC" value={(metrics.roc_auc ?? 0) * 100} suffix="%" note="attack-family holdout" /><Metric label="PR-AUC" value={(metrics.pr_auc ?? 0) * 100} suffix="%" note="positive-class quality" /><Metric label="Brier score" value={metrics.brier ?? 0} note="lower is better" /><Metric label="P95 latency" value={metrics.p95_latency_ms ?? 0} suffix=" ms" note="budget: 100 ms" /></section>
     <div className="model-grid"><section className="panel chart-panel"><PanelHeader icon={Gauge} overline="MODEL FEEDBACK" title="Gate score by cycle" /><div className="chart-wrap"><ResponsiveContainer width="100%" height="100%"><AreaChart data={data}><defs><linearGradient id="score" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#ea4d3d" stopOpacity={0.5}/><stop offset="1" stopColor="#ea4d3d" stopOpacity={0}/></linearGradient></defs><CartesianGrid stroke="#34362f" vertical={false}/><XAxis dataKey="index" tick={{ fill: "#8e9086", fontSize: 11 }} axisLine={false}/><YAxis domain={[0,100]} tick={{ fill: "#8e9086", fontSize: 11 }} axisLine={false}/><Tooltip contentStyle={{ background: "#191b18", border: "1px solid #383a34", borderRadius: 8 }} /><Area type="monotone" dataKey="score" stroke="#ea4d3d" strokeWidth={2} fill="url(#score)" /></AreaChart></ResponsiveContainer></div></section>
-      <section className="panel promotion-panel"><PanelHeader icon={Database} overline="INSTALLED ARTIFACT" title={model?.detector_id ?? "No model"} /><div className="promotion-status"><ShieldCheck size={28}/><strong>{model?.promoted ? "PROMOTED" : model?.schema_compatible === false ? "INCOMPATIBLE" : "BASELINE"}</strong><span>{model?.kind ?? "rules"}</span></div><div className="gate-checks">{["ROC-AUC ≥ .85","Recall@FPR ≥ .50","Brier ≤ .25","P95 ≤ 100ms","Control FP ≤ .15","Feature schema compatible"].map((gate) => <div key={gate}><i /><span>{gate}</span><b>{model?.promoted ? "PASS" : "PENDING"}</b></div>)}</div></section>
+      <section className="panel promotion-panel"><PanelHeader icon={Database} overline="INSTALLED ARTIFACT" title={model?.detector_id ?? "No model"} /><div className="promotion-status"><ShieldCheck size={28}/><strong>{model?.promoted ? "PROMOTED" : model?.legacy_compatible ? "COMPATIBILITY MODE" : model?.schema_compatible === false ? "INCOMPATIBLE" : "BASELINE"}</strong><span>{model?.legacy_compatible ? `legacy ${model.compatibility_policy?.replaceAll("_", " ")}` : model?.kind ?? "rules"}</span></div><div className="gate-checks">{["ROC-AUC ≥ .85","Recall@FPR ≥ .50","Brier ≤ .25","P95 ≤ 100ms","Control FP ≤ .15","Feature schema compatible"].map((gate) => <div key={gate}><i /><span>{gate}</span><b>{model?.promoted ? "PASS" : model?.legacy_compatible && gate === "Feature schema compatible" ? "ADAPTED" : "PENDING"}</b></div>)}</div></section>
     </div>
   </>;
 }

@@ -72,6 +72,8 @@ def test_promotion_evaluates_and_installs(tmp_path: Path, monkeypatch: pytest.Mo
     verdict = evaluate(report, reg)
     assert verdict.passed is False
     assert verdict.checks["approved_evaluation_protocol"] is False
+    assert verdict.checks["test_positives_ge_20"] is False
+    assert verdict.checks["ai_assisted_app_track_present"] is False
 
     ok = install_if_passed(report, verdict)
     assert ok is False

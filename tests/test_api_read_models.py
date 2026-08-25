@@ -38,10 +38,11 @@ def test_unknown_cycle_is_404() -> None:
 def test_model_card_does_not_promote_incompatible_artifact() -> None:
     body = client.get("/api/model").json()
     if body.get("schema_compatible") is False:
-        assert body["detector_id"] == "rule-baseline-v1"
         assert body["promoted"] is False
         assert body["metrics"] == {}
         assert body["incompatible_candidate_id"]
+        if body.get("legacy_compatible"):
+            assert body["detector_id"].startswith("compatible:")
 
 
 def test_chat_refuses_operational_attack_request() -> None:

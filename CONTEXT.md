@@ -19,6 +19,9 @@ Mastercard Innovation Challenge @ GFF 2026 — AI Defense Lab for Payment Securi
 | **Trace** | Ordered, labeled events from one simulation run; ground truth attached. |
 | **ObservedTraceView** | The trace as defenders may see it — ground-truth fields nulled by construction (`trace.observed_view()` is the only constructor). |
 | **Signal** | Typed indicator (name, evidence_refs, strength ∈ [0,1]) derived from an ObservedTraceView by a signal primitive; single definition lives in `forge.signals` and is consumed by both blue-team verdicts and detector features. |
+| **DetectionTrack** | A stable fraud problem evaluated under one evidence contract: behavioral payment fraud, AI-assisted APP fraud, or bank-controlled media authenticity. |
+| **EvidenceCapability** | A declared class of evidence available to the defender in one cycle; absence means unavailable, not benign. |
+| **FeatureSchema** | Versioned detector input contract spanning one or more DetectionTracks; older known schemas are adapted explicitly and unknown schemas are rejected. |
 | **MediaObservation** | Defender-visible facts extracted from a media artifact (hashes, codec/container facts, timing and versioned model scores) without generation truth. |
 | **ArtifactProvenance** | Internal receipt linking an artifact to its tool, model/workflow, inputs, seed and checksums; hidden from blue-team views. |
 | **BlueReport** | Blue team's structured verdict: signals, evidence_refs, motifs, mitigations, confidence, verdict ∈ {defeated, partial, missed}, uncovered_gaps. |

@@ -163,8 +163,8 @@ async def train_round(ctx: inngest.Context) -> None:
     ref = await _run_step(
         ctx.step, "build_dataset", stages.stage_build_dataset, dict(ctx.event.data)
     )
-    report = await _run_step(ctx.step, "train", stages.stage_train, ref)
-    verdict = await _run_step(ctx.step, "evaluate", stages.stage_evaluate, report)
+    report = await _run_step(ctx.step, "train_union_schema", stages.stage_train, ref)
+    verdict = await _run_step(ctx.step, "evaluate_sealed_holdout", stages.stage_evaluate, report)
     result = await _run_step(
         ctx.step,
         "install",
