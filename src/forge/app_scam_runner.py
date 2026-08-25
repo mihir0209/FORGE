@@ -22,17 +22,25 @@ from forge.feature_schema import FEATURE_SCHEMA_VERSION
 
 if TYPE_CHECKING:
     from forge.artifacts import ArtifactStore
+    from forge.contracts.contracts import FraudFamilyDefinition
     from forge.kb import Registry
 
 
 _VARIANTS = {"safe_account": "ai_bank_impersonation", "family_emergency": "ai_family_emergency", "investment_coaching": "ai_investment_coaching"}
 
 
-def app_scam_strategy(seed: int, variant: str = "safe_account") -> StrategySpec:
-    slug = _VARIANTS.get(variant, variant)
-    family = family_registry_from_env().get(slug)
+def app_scam_strategy(
+    seed: int,
+    variant: str = "safe_account",
+    *,
+    version: str = "1.0.0",
+    family: FraudFamilyDefinition | None = None,
+) -> StrategySpec:
+    if family is None:
+        slug = _VARIANTS.get(variant, variant)
+        family = family_registry_from_env().get(slug, version)
     return StrategySpec(
-        strategy_id=f"strategy-app-{slug}-{seed}",
+        strategy_id=f"strategy-app-{family.slug}-{seed}",
         fraud_objective=(
             "use AI-assisted impersonation outside the bank channel to coach a customer "
             f"into a high-risk UPI payment (run seed {seed})"
@@ -64,6 +72,7 @@ def app_scam_strategy(seed: int, variant: str = "safe_account") -> StrategySpec:
         provenance=Provenance(provider="fixture", model="ai-assisted-app-scam-v1"),
         family_version=family.version,
         family_definition_sha256=family.definition_sha256,
+        scenario_template=family.scenario_template,
     )
 
 
@@ -74,11 +83,13 @@ def run_app_scam_cycle(
     registry: Registry,
     store: ArtifactStore,
     variant: str = "safe_account",
+    family_version: str = "1.0.0",
 ) -> CycleRecord:
-    strategy = app_scam_strategy(seed, variant)
-    family = family_registry_from_env().get(strategy.attack_family, strategy.family_version)
+    slug = _VARIANTS.get(variant, variant)
+    family = family_registry_from_env().get(slug, family_version)
+    strategy = app_scam_strategy(seed, family=family)
     sandbox_result = ActorSandbox(store).execute(
-        build_app_plan(family, cycle_id), WorldSeed(master_seed=seed), cycle_id=cycle_id
+        build_app_plan(family, cycle_id, seed), WorldSeed(master_seed=seed), cycle_id=cycle_id
     )
     trace = sandbox_result.trace
     observed = trace.observed_view()

@@ -1,3 +1,4 @@
+# pyright: reportMissingTypeStubs=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportArgumentType=false
 """forge CLI — offline cycle runner (G1) and future pipeline helpers."""
 
 from __future__ import annotations
@@ -6,12 +7,16 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from forge.app_scam_runner import run_app_scam_cycle
 from forge.artifacts import artifact_store_from_env
 from forge.cycle_runner import run_offline_cycle
 from forge.kb import SQLiteRegistry
 from forge.redteam.fixtures import default_draft
+
+if TYPE_CHECKING:
+    from forge.contracts.contracts import EvidenceCapability
 
 
 def _cmd_train(args: argparse.Namespace) -> int:
@@ -99,6 +104,7 @@ def _cmd_app_scam(args: argparse.Namespace) -> int:
         registry=registry,
         store=store,
         variant=args.variant,
+        family_version=args.family_version,
     )
     print(
         json.dumps(
@@ -114,6 +120,114 @@ def _cmd_app_scam(args: argparse.Namespace) -> int:
         )
     )
     return 0
+
+
+def _cmd_benchmark_v1(args: argparse.Namespace) -> int:
+    import pandas as pd
+
+    from forge.benchmark import ProtocolConfig, build_benchmark, generate_pair
+    from forge.benchmark.external import external_component_evaluated
+    from forge.detect.benchmark import run_benchmark
+    from forge.families import family_registry_from_env
+    from forge.feature_schema import FEATURE_NAMES
+
+    root = Path(args.output)
+    families = family_registry_from_env().list()
+    sources = [
+        source
+        for index, family in enumerate(families)
+        for repeat in range(args.worlds_per_family)
+        for source in generate_pair(
+            family,
+            seed=args.seed + index * 100 + repeat,
+            output_root=root / "generation",
+        )
+    ]
+    feature_capabilities = {
+        name: _feature_capability(name) for name in FEATURE_NAMES
+    }
+    sealed_templates = frozenset[str](
+        value for value in str(args.sealed_templates).split(",") if value
+    )
+    sealed_families = frozenset[str](
+        value for value in str(args.sealed_families).split(",") if value
+    )
+    manifest = build_benchmark(
+        sources,
+        feature_capabilities=feature_capabilities,
+        config=ProtocolConfig(
+            sealed_families=sealed_families,
+            sealed_templates=sealed_templates,
+            development_folds=args.development_folds,
+        ),
+        output_root=root / "datasets",
+    )
+    dataset_root = root / "datasets" / manifest.dataset_id
+    dataset = pd.concat(
+        [pd.read_parquet(dataset_root / artifact.path) for artifact in manifest.artifacts],
+        ignore_index=True,
+    )
+    result = run_benchmark(
+        dataset,
+        FEATURE_NAMES,
+        root / "runs",
+        dataset_id=manifest.dataset_id,
+        bootstrap_samples=args.bootstrap_samples,
+        capability_features={
+            capability.value: tuple(
+                name for name, owner in feature_capabilities.items() if owner == capability
+            )
+            for capability in set(feature_capabilities.values())
+        },
+    )
+    unique = int(dataset["feature_sha256"].nunique())
+    external_ready = bool(
+        args.external_manifest and external_component_evaluated(Path(args.external_manifest))
+    )
+    publishable = unique >= args.min_unique_vectors and external_ready
+    print(
+        json.dumps(
+            {
+                "dataset_id": manifest.dataset_id,
+                "rows": len(dataset),
+                "unique_feature_vectors": unique,
+                "families": len(families),
+                "templates": len({family.scenario_template for family in families}),
+                "report_paths": result.report_paths,
+                "run_manifest": result.manifest_path,
+                "publishable": publishable,
+                "publication_blockers": [
+                    reason
+                    for condition, reason in (
+                        (unique < args.min_unique_vectors, "insufficient unique feature vectors"),
+                        (
+                            not external_ready,
+                            "external component has no validated media inference metrics",
+                        ),
+                    )
+                    if condition
+                ],
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _feature_capability(name: str) -> EvidenceCapability:
+    from forge.contracts.contracts import EvidenceCapability
+
+    if name in {"burst", "new_device", "refund_pressure", "off_hours_focus", "cashout_pressure", "volume"}:
+        return EvidenceCapability.PAYMENT_HISTORY
+    if name in {"behavioral_coaching_risk", "warning_override", "balance_depletion"}:
+        return EvidenceCapability.APP_BEHAVIOR
+    if name == "beneficiary_network_risk":
+        return EvidenceCapability.BENEFICIARY_NETWORK
+    if name == "first_time_payee":
+        return EvidenceCapability.PAYEE_VERIFICATION
+    if name in {"active_external_call", "transaction_during_call"}:
+        return EvidenceCapability.SYSTEM_CALL_STATE
+    return EvidenceCapability.BANK_CONTROLLED_MEDIA
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -138,10 +252,13 @@ def main(argv: list[str] | None = None) -> int:
     app_scam.add_argument("--cycle-id")
     app_scam.add_argument("--db", default="data/registry.sqlite")
     app_scam.add_argument(
+        "--family-slug",
         "--variant",
-        choices=["safe_account", "family_emergency", "investment_coaching"],
+        dest="variant",
         default="safe_account",
+        help="family slug (legacy aliases safe_account, family_emergency, investment_coaching work)",
     )
+    app_scam.add_argument("--family-version", default="1.0.0")
     app_scam.set_defaults(func=_cmd_app_scam)
 
     trn = sub.add_parser("train", help="run one training round from the current registry")
@@ -157,6 +274,18 @@ def main(argv: list[str] | None = None) -> int:
         default="attack-family-disjoint-holdout",
     )
     trn.set_defaults(func=_cmd_train)
+
+    bench = sub.add_parser("benchmark-v1", help="build the paired development benchmark")
+    bench.add_argument("--output", default="data/benchmarks/forge-v1")
+    bench.add_argument("--seed", type=int, default=30_000)
+    bench.add_argument("--worlds-per-family", type=int, default=3)
+    bench.add_argument("--development-folds", type=int, default=5)
+    bench.add_argument("--sealed-families", default="ai_romance_remittance,genai_otp_auth_bypass")
+    bench.add_argument("--sealed-templates", default="synthetic_kyc,agent_hijack")
+    bench.add_argument("--bootstrap-samples", type=int, default=500)
+    bench.add_argument("--min-unique-vectors", type=int, default=500)
+    bench.add_argument("--external-manifest")
+    bench.set_defaults(func=_cmd_benchmark_v1)
 
     args = parser.parse_args(argv)
     try:

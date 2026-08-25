@@ -70,3 +70,32 @@ def test_mcp_server_absent_without_key(monkeypatch: pytest.MonkeyPatch) -> None:
     assert available_mcp_servers() == []
     monkeypatch.setenv("TINYFISH_API_KEY", "configured")
     assert [server.name for server in available_mcp_servers()] == ["tinyfish"]
+
+
+def test_tinyfish_fetch_records_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import httpx
+
+    from forge.research_mcp import TinyFishResearchClient
+
+    class Response:
+        def __init__(self) -> None:
+            self.text = (
+                '{"jsonrpc":"2.0","result":{"content":[{"text":"public source"}]},"id":1}'
+            )
+            self.headers = {"Mcp-Session-Id": "test-session"}
+
+        def raise_for_status(self) -> None:
+            return None
+
+    monkeypatch.setenv("TINYFISH_API_KEY", "configured")
+    monkeypatch.setenv("TINYFISH_MCP_URL", "http://tinyfish.test/mcp")
+    def fake_post(*args: object, **kwargs: object) -> Response:
+        del args, kwargs
+        return Response()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    snapshot = TinyFishResearchClient(tmp_path).fetch_snapshot("https://example.org/source")
+    assert snapshot.provider == "tinyfish-mcp"
+    assert Path(snapshot.artifact_ref).exists()

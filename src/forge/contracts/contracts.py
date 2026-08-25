@@ -52,6 +52,82 @@ class EvidenceCapability(StrEnum):
     BANK_CONTROLLED_MEDIA = "bank_controlled_media"
 
 
+class BenchmarkSplit(StrEnum):
+    TRAIN = "train"
+    CALIBRATION = "calibration"
+    DEVELOPMENT = "development"
+    SEALED_TEST = "sealed_test"
+    OOD = "ood"
+
+
+class ScenarioPurpose(StrEnum):
+    ATTACK = "attack"
+    MATCHED_CONTROL = "matched_control"
+    HARD_NEGATIVE = "hard_negative"
+    LOW_SIGNAL_ATTACK = "low_signal_attack"
+
+
+class BenchmarkSlice(StrEnum):
+    TEMPORAL_OOD = "temporal_ood"
+    RAIL_OOD = "rail_ood"
+    CHANNEL_OOD = "channel_ood"
+
+
+class FeatureValue(Strict):
+    value: float | None
+    available: bool
+    capability: EvidenceCapability | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+
+
+class BenchmarkRowMetadata(Strict):
+    row_id: str
+    scenario_id: str
+    world_id: str
+    pair_id: str
+    family_slug: str
+    family_version: str
+    family_definition_sha256: str
+    scenario_template: str
+    purpose: ScenarioPurpose
+    split: BenchmarkSplit
+    fold: int | None = None
+    detection_track: DetectionTrack
+    payment_rail: str
+    channel: str
+    capability_mask: dict[EvidenceCapability, bool]
+    graph_snapshot_sha256: str | None = None
+    source_refs: list[str] = Field(default_factory=list)
+    feature_sha256: str
+    feature_equivalence_size: int = 1
+
+
+class BenchmarkArtifact(Strict):
+    split: BenchmarkSplit
+    path: str
+    sha256: str
+    byte_size: int
+    rows: int
+
+
+class BenchmarkManifest(Strict):
+    protocol_version: str = "forge-benchmark-v1"
+    dataset_id: str
+    feature_schema_version: str
+    feature_names: list[str]
+    feature_capabilities: dict[str, EvidenceCapability]
+    ablated_capabilities: list[EvidenceCapability] = Field(
+        default_factory=list[EvidenceCapability]
+    )
+    development_folds: int
+    sealed_families: list[str]
+    sealed_templates: list[str] = Field(default_factory=list)
+    rows: list[BenchmarkRowMetadata]
+    slices: dict[BenchmarkSlice, list[str]]
+    artifacts: list[BenchmarkArtifact]
+    metadata_sha256: str
+
+
 class GraphScope(StrEnum):
     LOCAL_BANK = "local_bank"
     CONSORTIUM = "consortium"
@@ -118,6 +194,7 @@ class StrategySpec(Strict):
     provenance: Provenance
     family_version: str = "1.0.0"
     family_definition_sha256: str | None = None
+    scenario_template: str = "legacy_behavioral"
 
     def fingerprint(self) -> str:
         payload = json.dumps(
@@ -363,6 +440,23 @@ class ToolKind(StrEnum):
     BENEFICIARY_RISK_QUERY = "beneficiary.risk.query"
     SCAM_INTERVENE = "scam.intervene"
     PAYMENT_INITIATE = "payment.initiate"
+    KYC_SUBMIT = "kyc.submit"
+    VENDOR_DETAILS_CHANGE = "vendor.details.change"
+    AGENT_CONTENT_INGEST = "agent.content.ingest"
+    AUTH_CHALLENGE = "auth.challenge"
+    WALLET_TOKEN_PROVISION = "wallet.token.provision"
+    SUBSCRIPTION_ENROLL = "subscription.enroll"
+    DELEGATION_CREATE = "delegation.create"
+    PAYMENT_REQUEST_CREATE = "payment_request.create"
+    CONSENT_CREATE = "consent.create"
+    CRYPTO_TRANSFER = "crypto.transfer"
+    CLAIM_SUBMIT = "claim.submit"
+    PAYROLL_DESTINATION_CHANGE = "payroll.destination.change"
+
+
+class FamilyEvidenceStatus(StrEnum):
+    DEMONSTRATED = "demonstrated"
+    EXPERIMENTAL = "experimental"
 
 
 class ToolAction(Strict):
@@ -449,6 +543,10 @@ class FraudFamilyDefinition(Strict):
     channel: str
     genai_leverage: str
     evasion_hypothesis: str
+    evidence_status: FamilyEvidenceStatus = FamilyEvidenceStatus.DEMONSTRATED
+    scenario_template: str = Field(
+        default="async_coaching", pattern=r"^[a-z][a-z0-9_]{2,63}$"
+    )
     allowed_tools: list[ToolKind]
     required_capabilities: list[EvidenceCapability] = Field(
         default_factory=list[EvidenceCapability]
@@ -456,6 +554,28 @@ class FraudFamilyDefinition(Strict):
     scenario_defaults: dict[str, bool | int | float | str] = Field(default_factory=dict)
     research_refs: list[str] = Field(default_factory=list)
     definition_sha256: str
+
+
+class ResearchSnapshot(Strict):
+    snapshot_id: str
+    source_url: str
+    retrieved_at: datetime
+    title: str
+    content_sha256: str
+    artifact_ref: str
+    provider: str
+    parser_version: str
+    trust: str = "untrusted-public-web"
+
+
+class FamilyApprovalReceipt(Strict):
+    family_slug: str
+    family_version: str
+    definition_sha256: str
+    research_snapshot_ids: list[str]
+    approved: bool
+    reviewer: str
+    approved_at: datetime
 
 
 class GraphEvent(Strict):
@@ -470,6 +590,36 @@ class GraphEvent(Strict):
     identity_ref: str | None = None
     amount_minor: int = 0
     attributes: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphQuery(Strict):
+    beneficiary_ref: str
+    decision_at: datetime
+    scopes: list[GraphScope]
+    local_institution_id: str | None = None
+    feature_version: str = "beneficiary-risk-v1"
+
+    @model_validator(mode="after")
+    def local_scope_requires_institution(self) -> GraphQuery:
+        if (
+            GraphScope.LOCAL_BANK in self.scopes
+            and GraphScope.CONSORTIUM not in self.scopes
+            and not self.local_institution_id
+        ):
+            raise ValueError("local_bank scope requires local_institution_id")
+        if not self.scopes:
+            raise ValueError("at least one graph scope is required")
+        if len(set(self.scopes)) != len(self.scopes):
+            raise ValueError("graph scopes must be unique")
+        return self
+
+
+class GraphSnapshot(Strict):
+    snapshot_id: str
+    snapshot_sha256: str
+    query: GraphQuery
+    event_ids: list[str]
+    canonical_json: str
 
 
 class BeneficiaryGraphAssessment(Strict):

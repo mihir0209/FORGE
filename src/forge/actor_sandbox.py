@@ -19,12 +19,14 @@ from forge.contracts.contracts import (
     LifecycleStage,
     MediaJobRequest,
     MediaObservation,
+    ScenarioPurpose,
     SyntheticTrace,
     ToolAction,
     ToolKind,
     TraceEvent,
     WorldSeed,
 )
+from forge.graph_store import GraphEventStore, graph_store_from_env
 from forge.media import FFmpegFixtureAdapter
 from forge.risk_graph import graph_for_motif
 
@@ -55,11 +57,19 @@ class _AppScamProfile(TypedDict):
 class ActorSandbox:
     """Runs one typed ActionPlan against a non-routable synthetic world."""
 
-    def __init__(self, store: ArtifactStore) -> None:
+    def __init__(self, store: ArtifactStore, graph_store: GraphEventStore | None = None) -> None:
         self.store = store
         self.media = FFmpegFixtureAdapter(store)
+        self.graph_store = graph_store or graph_store_from_env()
 
-    def execute(self, plan: ActionPlan, seed: WorldSeed, *, cycle_id: str) -> SandboxResult:
+    def execute(
+        self,
+        plan: ActionPlan,
+        seed: WorldSeed,
+        *,
+        cycle_id: str,
+        purpose: ScenarioPurpose = ScenarioPurpose.ATTACK,
+    ) -> SandboxResult:
         start = datetime(2026, 8, 23, 8, tzinfo=UTC) + timedelta(minutes=seed.master_seed % 360)
         events: list[TraceEvent] = []
         provenance: list[ArtifactProvenance] = []
@@ -67,6 +77,8 @@ class ActorSandbox:
         graph_assessments: list[BeneficiaryGraphAssessment] = []
         outputs: dict[str, list[str]] = {}
         seq = 0
+
+        fraudulent = purpose in {ScenarioPurpose.ATTACK, ScenarioPurpose.LOW_SIGNAL_ATTACK}
 
         def emit(
             kind: str,
@@ -89,8 +101,8 @@ class ActorSandbox:
                 payload=payload,
                 evidence_scope=scope,
                 private_payload=private or {},
-                is_attack_step=True,
-                attack_stage=stage,
+                is_attack_step=fraudulent,
+                attack_stage=stage if fraudulent else None,
             )
             events.append(event)
             return event
@@ -221,7 +233,7 @@ class ActorSandbox:
                             action.parameters.get("entry_method", "clipboard_paste")
                         ),
                     },
-                    private={"payee_is_mule": True},
+                    private={"payee_is_mule": fraudulent},
                     actor_kind=ActorKind.CUSTOMER,
                     stage=LifecycleStage.PAYMENT,
                     seconds=second,
@@ -280,7 +292,14 @@ class ActorSandbox:
                 scopes = [GraphScope(str(value)) for value in cast("list[object]", raw_scopes)]
                 motif = str(action.parameters.get("graph_motif", "mule_fanin"))
                 decision_at = start + timedelta(seconds=second)
-                assessment = graph_for_motif(motif, payee_id, decision_at).assess(payee_id, decision_at, scopes)
+                assessment = graph_for_motif(
+                    motif, payee_id, decision_at, store=self.graph_store
+                ).assess(
+                    payee_id,
+                    decision_at,
+                    scopes,
+                    local_institution_id="bank-b",
+                )
                 graph_assessments.append(assessment)
                 emit(
                     "beneficiary.risk.assessed",
@@ -305,7 +324,7 @@ class ActorSandbox:
                             action.parameters.get("warning_overridden", True)
                         ),
                     },
-                    private={"customer_was_coached_to_override": True},
+                    private={"customer_was_coached_to_override": fraudulent},
                     actor_kind=ActorKind.CUSTOMER,
                     stage=LifecycleStage.PAYMENT,
                     seconds=second,
@@ -323,7 +342,7 @@ class ActorSandbox:
                         "currency": str(action.parameters.get("currency", "INR")),
                         "method_token": "customer-account-token-1",
                         "state": "initiated",
-                        "channel": "upi",
+                        "channel": str(action.parameters.get("rail", "upi")),
                         "device_id": "customer-device-1",
                         "session_id": app_session_id,
                         "payee_id": payee_id,
@@ -336,8 +355,7 @@ class ActorSandbox:
                     stage=LifecycleStage.PAYMENT,
                     seconds=second,
                 )
-                fraudulent = bool(action.parameters.get("fraudulent", True))
-                outcome = str(action.parameters.get("outcome", "held" if fraudulent else "authorized"))
+                outcome = "held" if fraudulent else "authorized"
                 emit(
                     f"payment.{outcome}",
                     {
@@ -356,13 +374,42 @@ class ActorSandbox:
                 )
                 continue
 
+            workflow_events = {
+                ToolKind.KYC_SUBMIT: "kyc.application.submitted",
+                ToolKind.VENDOR_DETAILS_CHANGE: "vendor.payment_details.changed",
+                ToolKind.AGENT_CONTENT_INGEST: "agent.untrusted_content.ingested",
+                ToolKind.AUTH_CHALLENGE: "authentication.challenge.completed",
+                ToolKind.WALLET_TOKEN_PROVISION: "wallet.token.provisioned",
+                ToolKind.SUBSCRIPTION_ENROLL: "subscription.enrolled",
+                ToolKind.DELEGATION_CREATE: "payment.delegation.created",
+                ToolKind.PAYMENT_REQUEST_CREATE: "payment_request.created",
+                ToolKind.CONSENT_CREATE: "open_banking.consent.created",
+                ToolKind.CRYPTO_TRANSFER: "crypto.transfer.initiated",
+                ToolKind.CLAIM_SUBMIT: "claim.submitted",
+                ToolKind.PAYROLL_DESTINATION_CHANGE: "payroll.destination.changed",
+            }
+            if action.tool in workflow_events:
+                emit(
+                    workflow_events[action.tool],
+                    {
+                        "session_id": app_session_id,
+                        "synthetic_entity_token": f"entity-{cycle_id}",
+                        **action.parameters,
+                    },
+                    private={"research_scenario": True},
+                    actor_kind=ActorKind.SYSTEM,
+                    stage=LifecycleStage.PAYMENT,
+                    seconds=second,
+                )
+                continue
+
             raise ValueError(f"unsupported actor tool: {action.tool}")
 
         trace_id = (
             "tr_mm_"
             + hashlib.sha256(f"{plan.plan_id}:{seed.master_seed}".encode()).hexdigest()[:12]
         )
-        attack_ids = [e.event_id for e in events]
+        attack_ids = [e.event_id for e in events] if fraudulent else []
         trace = SyntheticTrace(
             trace_id=trace_id,
             seed=seed,
@@ -377,7 +424,7 @@ class ActorSandbox:
                 ks_timestamp_gap=0.0,
                 graph_density_delta=0.0,
                 temporal_autocorr=0.0,
-                reachability_ok=app_session_id is not None and bool(attack_ids),
+                reachability_ok=app_session_id is not None and bool(events),
                 notes=["AI-assisted APP scam with realistic payment-time evidence boundaries"],
             ),
         )
