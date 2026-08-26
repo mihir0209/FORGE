@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from forge.contracts.contracts import (
+    EvCycleAccepted,
     EvCycleRequested,
     EvGateScored,
     EvInvestigationCompleted,
@@ -16,6 +17,7 @@ from forge.contracts.contracts import (
     WorldSeed,
 )
 from forge.cycle_runner import run_offline_cycle
+from forge.kb import registry_from_env
 from forge.pipeline import stages
 from forge.simulate import simulate
 from forge.storage import ensure_dirs, load_artifact
@@ -60,7 +62,7 @@ def test_stage_chain_matches_offline_cycle(isolated_env: Path) -> None:
     assert p_scored.gate.action == offline.gate_result.action
     assert p_scored.gate.coverage == offline.gate_result.coverage
     assert p_scored.gate.reason_codes == offline.gate_result.reason_codes
-    assert p_scored.trace_ref == f"traces/{offline.trace_ref}.json"
+    assert p_scored.trace_ref == offline.trace_ref
 
     report = load_artifact(p_scored.report_ref)
     assert report["verdict"] == offline.blue_report.verdict.value
@@ -81,6 +83,24 @@ def test_finalize_records_cycle(isolated_env: Path) -> None:
     accepted_payload: dict[str, object] = out["accepted"]  # type: ignore[assignment]
     expected_id = "s_off_" + hashlib.sha256(b"7").hexdigest()[:10]
     assert accepted_payload["strategy_id"] == expected_id
+    recorded = registry_from_env().cycles()[0]
+    assert recorded.trace_ref.startswith("traces/")
+    assert SyntheticTrace.model_validate(load_artifact(recorded.trace_ref))
+
+
+def test_finalize_is_idempotent(isolated_env: Path) -> None:
+    composed = stages.stage_compose(EvCycleRequested(seed=77, brief_id=None).model_dump())
+    assert composed is not None
+    proposed = EvStrategyProposed.model_validate(composed)
+    traced = EvTraceCompleted.model_validate(stages.stage_simulate(proposed.model_dump()))
+    investigated = EvInvestigationCompleted.model_validate(
+        stages.stage_investigate(traced.model_dump())
+    )
+    scored = EvGateScored.model_validate(stages.stage_gate(investigated.model_dump()))
+    first = stages.stage_finalize(scored.model_dump())
+    second = stages.stage_finalize(scored.model_dump())
+    assert first == second
+    assert len(registry_from_env().cycles()) == 1
 
 
 def test_trace_artifact_roundtrips_to_equal_model(isolated_env: Path) -> None:
@@ -100,3 +120,60 @@ def test_compose_uses_shared_strategy_ids(isolated_env: Path) -> None:
     assert composed is not None
     proposed = EvStrategyProposed.model_validate(composed)
     assert proposed.strategy_id.startswith("s_off_")
+
+
+def test_legacy_cycle_without_family_checksum_does_not_propose_variant(
+    isolated_env: Path,
+) -> None:
+    out = _drive_chain(51)["out"]
+    accepted = EvCycleAccepted.model_validate(out["accepted"])  # type: ignore[index]
+    assert stages.stage_propose_residual_variant(accepted.model_dump()) is None
+
+
+def test_app_cycle_automatically_persists_pending_variant(
+    isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from forge.artifacts import LocalArtifactStore
+    from forge.kb import SQLiteRegistry
+
+    monkeypatch.setattr(
+        "forge.artifacts.artifact_store_from_env",
+        lambda: LocalArtifactStore(isolated_env.parent / "objects"),
+    )
+    requested = EvCycleRequested(
+        seed=73,
+        family_slug="ai_bank_impersonation",
+        scenario="ai_assisted_app_scam",
+    )
+    accepted = stages.stage_app_scam_cycle(requested.model_dump())
+    proposed = stages.stage_propose_residual_variant(accepted)
+
+    assert proposed is not None
+    registry = SQLiteRegistry(isolated_env)
+    proposals = registry.variant_proposals()
+    assert len(proposals) == 1
+    assert proposals[0].source_cycle_id == "cycle-app-73"
+    assert proposals[0].candidate_family.slug == proposed["candidate_family_slug"]
+
+
+def test_training_corpus_requires_family_disjoint_support(
+    isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from forge.artifacts import LocalArtifactStore
+
+    monkeypatch.setattr(
+        "forge.artifacts.artifact_store_from_env",
+        lambda: LocalArtifactStore(isolated_env.parent / "objects"),
+    )
+    monkeypatch.setattr("forge.pipeline.stages.settings", lambda: type("S", (), {
+        "pipeline": type("P", (), {"training_threshold_min": 1})()
+    })())
+    accepted = stages.stage_app_scam_cycle(
+        EvCycleRequested(
+            seed=81,
+            family_slug="ai_bank_impersonation",
+            scenario="ai_assisted_app_scam",
+        ).model_dump()
+    )
+
+    assert stages.stage_claim_training_corpus(accepted) is None

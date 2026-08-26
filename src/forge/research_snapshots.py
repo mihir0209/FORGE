@@ -86,7 +86,14 @@ class ResearchSnapshotStore:
         path = self.root / f"approval-{family.slug}-{family.version}.json"
         if path.exists():
             existing = FamilyApprovalReceipt.model_validate_json(path.read_text())
-            if existing != receipt:
+            if (
+                existing.family_slug != receipt.family_slug
+                or existing.family_version != receipt.family_version
+                or existing.definition_sha256 != receipt.definition_sha256
+                or existing.research_snapshot_ids != receipt.research_snapshot_ids
+                or existing.approved != receipt.approved
+                or existing.reviewer != receipt.reviewer
+            ):
                 raise ValueError("family approval receipt is immutable")
             return existing
         temporary = path.with_suffix(".tmp")

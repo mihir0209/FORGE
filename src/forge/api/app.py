@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 import inngest.fast_api
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -51,6 +51,14 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="cycle not found")
         return cycle
 
+    @app.get("/api/strategies")
+    def get_strategies(
+        limit: int = Query(default=25, ge=1, le=100),
+        offset: int = Query(default=0, ge=0),
+        query: str | None = Query(default=None, max_length=120),
+    ) -> dict[str, object]:
+        return read_models.strategy_repository(limit=limit, offset=offset, query=query)
+
     @app.get("/api/coverage")
     def get_coverage() -> dict[str, object]:
         return read_models.coverage()
@@ -71,6 +79,37 @@ def create_app() -> FastAPI:
     def get_f3_matrix() -> dict[str, object]:
         return read_models.f3_view()
 
+    @app.get("/api/operations")
+    def get_operations() -> dict[str, object]:
+        return read_models.operations()
+
+    @app.get("/api/variants")
+    def get_variants() -> list[dict[str, object]]:
+        return read_models.variants()
+
+    def require_operator_token(token: str | None) -> None:
+        expected = os.environ.get("FORGE_OPERATOR_TOKEN")
+        if not expected:
+            raise HTTPException(status_code=503, detail="operator actions are disabled")
+        if token != expected:
+            raise HTTPException(status_code=403, detail="invalid operator token")
+
+    @app.post("/api/demo", status_code=status.HTTP_202_ACCEPTED)
+    async def trigger_demo(x_forge_operator: str | None = Header(default=None)) -> dict[str, object]:
+        from forge.pipeline.dispatch import enqueue_competition_demo
+
+        require_operator_token(x_forge_operator)
+        return await enqueue_competition_demo()
+
+    @app.post("/api/workers/probe", status_code=status.HTTP_202_ACCEPTED)
+    async def probe_workers(x_forge_operator: str | None = Header(default=None)) -> dict[str, object]:
+        from forge.pipeline.dispatch import enqueue_worker_probes
+
+        require_operator_token(x_forge_operator)
+        return await enqueue_worker_probes(
+            int(os.environ.get("FORGE_WORKER_REPLICAS", "5"))
+        )
+
     @app.post("/api/chat")
     def chat(request: ChatRequest) -> ChatResponse:
         return answer_chat(request, read_models.registry())
@@ -78,7 +117,12 @@ def create_app() -> FastAPI:
     if os.environ.get("FORGE_INNGEST_MODE", "serve") == "serve":
         inngest.fast_api.serve(app, client, functions)
 
-    dist = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+    dist = Path(
+        os.environ.get(
+            "FORGE_FRONTEND_DIST",
+            Path(__file__).resolve().parents[3] / "frontend" / "dist",
+        )
+    )
     if dist.exists():
         app.mount("/", StaticFiles(directory=dist, html=True), name="dashboard")
     return app

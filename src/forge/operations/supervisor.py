@@ -125,7 +125,9 @@ class RunSupervisor:
     ) -> bool:
         now = now or datetime.now(UTC)
         state = self.load_required()
-        if cycle_key in state.admitted_cycle_ids or cycle_key in state.completed_cycle_ids:
+        if cycle_key in state.completed_cycle_ids:
+            return False
+        if cycle_key in state.admitted_cycle_ids:
             return True
         queue_ratio = queue_depth / self.config.queue_capacity
         allowed = (
@@ -168,14 +170,20 @@ class RunSupervisor:
             )
         )
 
-    def release_admission(self, cycle_key: str = "anonymous") -> RunSupervisorState:
+    def release_admission(
+        self, cycle_key: str = "anonymous", storage_reservation: int = 0
+    ) -> RunSupervisorState:
         """Release a reserved slot when compose terminates (e.g. duplicate)."""
         state = self.load_required()
+        if cycle_key not in state.admitted_cycle_ids:
+            return state
         return self._save(
             state.model_copy(
                 update={
                     "version": state.version + 1,
                     "queued_cycles": max(0, state.queued_cycles - 1),
+                    "admitted_cycles": max(0, state.admitted_cycles - 1),
+                    "storage_bytes": max(0, state.storage_bytes - storage_reservation),
                     "admitted_cycle_ids": [
                         item for item in state.admitted_cycle_ids if item != cycle_key
                     ],
@@ -229,7 +237,11 @@ class RunSupervisor:
                     }
                 )
             )
-        if state.state == RunState.DRAINING and state.active_cycles == 0:
+        if (
+            state.state == RunState.DRAINING
+            and state.active_cycles == 0
+            and state.queued_cycles == 0
+        ):
             return self._save(
                 state.model_copy(
                     update={"state": RunState.FINALIZING, "version": state.version + 1}

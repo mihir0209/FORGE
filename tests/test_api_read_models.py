@@ -1,9 +1,11 @@
 """P5 backend read-model endpoints expose registry truth, never mock data."""
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
-from forge.api.app import app
+from forge.api.app import app, create_app
 
 client = TestClient(app)
 
@@ -43,6 +45,63 @@ def test_model_card_does_not_promote_incompatible_artifact() -> None:
         assert body["incompatible_candidate_id"]
         if body.get("legacy_compatible"):
             assert body["detector_id"].startswith("compatible:")
+
+
+def test_operations_reports_truthful_component_states() -> None:
+    response = client.get("/api/operations")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["overall_status"] in {"healthy", "degraded", "unavailable"}
+    assert body["control_plane"]["api"]["status"] == "healthy"
+    assert body["backups"]["status"] in {"not_configured", "degraded"}
+    assert isinstance(body["counts"]["cycles"], int)
+    assert isinstance(body["pending_variants"], list)
+
+
+def test_variants_are_read_only_summaries() -> None:
+    response = client.get("/api/variants")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+def test_strategy_repository_pairs_red_and_blue_as_markdown() -> None:
+    response = client.get("/api/strategies?limit=5")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["limit"] == 5
+    assert body["total"] >= len(body["items"])
+    assert body["summary"]["investigated"] + body["summary"]["unhandled"] == body["total"]
+    if body["items"]:
+        entry = body["items"][0]
+        assert entry["strategy"]["strategy_id"] == entry["strategy_id"]
+        assert "## Red Team Strategy" in entry["markdown"]
+        assert "## Blue Team Handling" in entry["markdown"]
+
+
+def test_strategy_repository_validates_pagination() -> None:
+    assert client.get("/api/strategies?limit=0").status_code == 422
+    assert client.get("/api/strategies?offset=-1").status_code == 422
+
+
+def test_operator_actions_are_disabled_without_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FORGE_OPERATOR_TOKEN", raising=False)
+    isolated = TestClient(create_app())
+    assert isolated.post("/api/demo").status_code == 503
+    assert isolated.post("/api/workers/probe").status_code == 503
+
+
+def test_frontend_dist_can_be_mounted_from_deployment_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<h1>FORGE</h1>")
+    monkeypatch.setenv("FORGE_FRONTEND_DIST", str(dist))
+    monkeypatch.setenv("FORGE_INNGEST_MODE", "connect")
+
+    response = TestClient(create_app()).get("/")
+    assert response.status_code == 200
+    assert "FORGE" in response.text
 
 
 def test_chat_refuses_operational_attack_request() -> None:

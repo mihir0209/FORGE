@@ -122,6 +122,125 @@ def _cmd_app_scam(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_family_register(args: argparse.Namespace) -> int:
+    from forge.contracts.contracts import FraudFamilyDefinition
+    from forge.families import FamilyRegistry
+
+    definition = Path(args.definition)
+    family = FraudFamilyDefinition.model_validate_json(definition.read_text())
+    registry = FamilyRegistry(
+        definition.parent,
+        require_approval=True,
+        registry=SQLiteRegistry(Path(args.db)),
+    )
+    registry.register(family)
+    print(
+        json.dumps(
+            {
+                "family": family.slug,
+                "version": family.version,
+                "definition_sha256": family.definition_sha256,
+                "database": str(args.db),
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _cmd_variant_list(args: argparse.Namespace) -> int:
+    from forge.families import FamilyRegistry
+    from forge.kb import registry_from_env
+
+    registry = SQLiteRegistry(Path(args.db)) if args.db else registry_from_env()
+    active = {
+        (family.slug, family.version, family.definition_sha256)
+        for family in FamilyRegistry(registry=registry).list()
+    }
+    print(
+        json.dumps(
+            [
+                {
+                    "proposal_id": proposal.proposal_id,
+                    "source_cycle_id": proposal.source_cycle_id,
+                    "parent_family": proposal.parent_family_slug,
+                    "candidate_family": proposal.candidate_family.slug,
+                    "status": "approved"
+                    if (
+                        proposal.candidate_family.slug,
+                        proposal.candidate_family.version,
+                        proposal.candidate_family.definition_sha256,
+                    )
+                    in active
+                    else "pending",
+                    "residual_kinds": [kind.value for kind in proposal.residual_kinds],
+                    "changes": [change.model_dump(mode="json") for change in proposal.changes],
+                }
+                for proposal in registry.variant_proposals()
+            ],
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _cmd_variant_approve(args: argparse.Namespace) -> int:
+    from forge.families import FamilyRegistry
+    from forge.kb import registry_from_env
+    from forge.research_snapshots import ResearchSnapshotStore
+
+    registry = SQLiteRegistry(Path(args.db)) if args.db else registry_from_env()
+    proposal = registry.variant_proposal(args.proposal_id)
+    if proposal is None:
+        raise ValueError(f"unknown variant proposal {args.proposal_id}")
+    source = registry.cycle(proposal.source_cycle_id)
+    if source is None or source.strategy.family_definition_sha256 != proposal.parent_definition_sha256:
+        raise ValueError("variant proposal source cycle or parent checksum is unavailable")
+
+    data_root = Path(args.data_dir)
+    family_registry = FamilyRegistry(
+        data_root / "families",
+        require_approval=True,
+        registry=registry,
+    )
+    parent = family_registry.get(proposal.parent_family_slug, proposal.parent_family_version)
+    if parent.definition_sha256 != proposal.parent_definition_sha256:
+        raise ValueError("variant proposal parent definition has changed")
+    from forge.gapmine import propose_variant
+
+    expected = propose_variant(source, parent)
+    if expected != proposal:
+        raise ValueError("variant proposal checksum or derivation is invalid")
+    ResearchSnapshotStore(data_root / "research").approve_family(
+        proposal.candidate_family,
+        args.snapshot_id,
+        reviewer=args.reviewer,
+        approved=True,
+    )
+    family_registry.register(proposal.candidate_family)
+    print(
+        json.dumps(
+            {
+                "proposal_id": proposal.proposal_id,
+                "registered_family": proposal.candidate_family.slug,
+                "definition_sha256": proposal.candidate_family.definition_sha256,
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _cmd_data_audit(args: argparse.Namespace) -> int:
+    from forge.data_quality import audit_registry
+    from forge.kb import registry_from_env
+
+    registry = SQLiteRegistry(Path(args.db)) if args.db else registry_from_env()
+    result = audit_registry(registry, run_id=args.run_id)
+    print(json.dumps(result, indent=2))
+    return 0 if result[args.require] else 1
+
+
 def _cmd_benchmark_v1(args: argparse.Namespace) -> int:
     import pandas as pd
 
@@ -260,6 +379,40 @@ def main(argv: list[str] | None = None) -> int:
     )
     app_scam.add_argument("--family-version", default="1.0.0")
     app_scam.set_defaults(func=_cmd_app_scam)
+
+    family_register = sub.add_parser(
+        "family-register",
+        help="activate an approved family definition in the runtime registry",
+    )
+    family_register.add_argument("--definition", required=True)
+    family_register.add_argument("--db", default="data/registry.sqlite")
+    family_register.set_defaults(func=_cmd_family_register)
+
+    data_audit = sub.add_parser(
+        "data-audit",
+        help="verify trace persistence, defender blindness, evidence links, and LLM readiness",
+    )
+    data_audit.add_argument("--db", help="SQLite registry; omit to use configured runtime registry")
+    data_audit.add_argument("--run-id", help="audit only one supervised run")
+    data_audit.add_argument(
+        "--require", choices=("integrity_ready", "llm_ready"), default="integrity_ready"
+    )
+    data_audit.set_defaults(func=_cmd_data_audit)
+
+    variant_list = sub.add_parser("variant-list", help="list pending residual family variants")
+    variant_list.add_argument("--db")
+    variant_list.set_defaults(func=_cmd_variant_list)
+
+    variant_approve = sub.add_parser(
+        "variant-approve",
+        help="approve and register a pending residual family variant",
+    )
+    variant_approve.add_argument("--proposal-id", required=True)
+    variant_approve.add_argument("--reviewer", required=True)
+    variant_approve.add_argument("--snapshot-id", action="append", required=True)
+    variant_approve.add_argument("--data-dir", default="data")
+    variant_approve.add_argument("--db")
+    variant_approve.set_defaults(func=_cmd_variant_approve)
 
     trn = sub.add_parser("train", help="run one training round from the current registry")
     trn.add_argument("--db", default="data/registry.sqlite")

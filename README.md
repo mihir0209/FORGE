@@ -41,6 +41,64 @@ Simulate/investigate/gate run under per-`attack_family` concurrency keys.
 Duplicate fingerprints are dropped at compose; offline equivalent:
 `uv run forge cycle --seed 42`.
 
+## Host-backed container storage
+
+Docker persists all runtime state directly under the repository's ignored `data/`
+directory: PostgreSQL under `data/services/postgres`, Redis under
+`data/services/redis`, MinIO under `data/services/minio`, and FORGE artifacts and
+research receipts under their existing `data/` paths.
+
+```bash
+./deploy/prepare-data.sh
+docker compose --env-file deploy/vps.env -f docker-compose.vps.yml up -d
+```
+
+For a bounded unattended run, set a new `FORGE_RUN_ID`, set
+`FORGE_RUN_DURATION_HOURS=48`, enable `FORGE_CAMPAIGN_ENABLED=1`, and configure
+the campaign family rotation in `deploy/vps.env`. The durable ten-minute
+campaign tick claims each run/time slot atomically, emits deterministic unique
+requests, and stops admitting work when the supervisor enters drain state.
+
+Create and verify a point-in-time backup without replacing live data:
+
+```bash
+./deploy/backup.sh
+./deploy/verify-backup.sh data/backups/<UTC-timestamp>
+```
+
+The backup contains logical PostgreSQL dumps, a Redis RDB snapshot, a MinIO
+object mirror, a runtime artifact archive, and SHA-256 checksums. Verification
+restores both databases under temporary names, validates the Redis snapshot,
+restores MinIO into a temporary bucket, checks schemas and checksums, and reads
+the artifact archive before deleting temporary resources. Backup creation uses
+a short maintenance window that stops API, workers and Inngest to establish one
+cross-store boundary, then restarts them automatically. Copy the verified
+directory off-host; local verification alone is not an off-host backup.
+
+Set `FORGE_OPERATOR_TOKEN` in `deploy/vps.env` to enable the dashboard's demo
+and worker-probe actions. In the browser, store the same value under the
+`forgeOperatorToken` local-storage key. If the server token is absent, mutation
+endpoints return `503`; an incorrect token returns `403`.
+
+On every startup, the one-shot `forge-bootstrap` service idempotently imports
+`data/registry.sqlite` and approved definitions under `data/families/` into
+PostgreSQL before the API and workers start. Source files remain unchanged and
+continue to provide a portable local backup.
+
+**Upgrading from the previous named-volume deployment:** stop the stack and
+export PostgreSQL (`pg_dump`), MinIO objects (`mc mirror`), and any required
+Redis state before switching to this bind-mounted Compose file. Restore those
+exports under `data/services/` or into the freshly started services. Compose
+does not automatically migrate the old `postgres-data`, `redis-data`, or
+`minio-data` named volumes; starting the new layout without an export leaves
+those old volumes intact but detached from the running services.
+
+Residual APP failures automatically create bounded, non-executable family
+proposals in the registry. Review them with `uv run forge variant-list --db
+data/registry.sqlite`. After the proposal's source references have immutable
+research snapshots, activate it explicitly with `forge variant-approve`; no
+proposal executes before that approval step.
+
 ## Judge-facing dashboard
 
 ```bash
@@ -54,9 +112,31 @@ cd ..
 uv run uvicorn forge.api.app:app --port 8000
 ```
 
-Surfaces: Control Room, Attack Lab, Defense Lab, Model Registry, Gap Miner,
-F3 Coverage Matrix, and guarded Analyst Chat. All views read the live SQLite
-registry and model artifacts; there is no mock-data path.
+Surfaces: Control Room, Closed Loop, Strategy Repository, Operations, Attack
+Lab, Defense Lab, Model Registry, Gap Miner, F3 Coverage Matrix, and guarded
+Analyst Chat. The Strategy Repository pairs each persisted red-team hypothesis
+with its latest blind blue-team handling and provides readable and canonical
+Markdown views. All views read the configured live registry and model artifacts;
+there is no mock-data path.
+
+The deployed system separates presentation from execution:
+
+- FastAPI serves the React dashboard and read/control endpoints.
+- The dashboard can enqueue only reviewed competition demos and worker probes.
+- Inngest owns durable scheduling, retries, and event fan-out.
+- Headless worker containers execute simulation, investigation, scoring, variant
+  derivation, and training; the web process does not execute those stages.
+
+The `Closed Loop` view presents Identify → Generate → Defend → Learn for one
+selected cycle. The `Operations` view reports observed worker probes, queue and
+registry health, structured-record counts, host-backed artifact inventories,
+model governance, pending review-gated variants, and backup posture. It reports
+unknown or not configured states rather than inferring health from configuration.
+
+`uv run forge data-audit --run-id "$FORGE_RUN_ID"` validates checksum-bearing
+trace references, schema round trips, defender blindness and blue-team evidence
+links. It reports LLM readiness separately and fails that gate while targets
+remain heuristic, duplicated or below the reviewed-corpus threshold.
 
 ## Layout
 

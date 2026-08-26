@@ -459,6 +459,14 @@ class FamilyEvidenceStatus(StrEnum):
     EXPERIMENTAL = "experimental"
 
 
+class ResidualKind(StrEnum):
+    GATE_PARTIAL = "gate_partial"
+    GATE_BLIND_SPOT = "gate_blind_spot"
+    BLUE_PARTIAL = "blue_partial"
+    BLUE_MISSED = "blue_missed"
+    BLUE_UNCOVERED_GAP = "blue_uncovered_gap"
+
+
 class ToolAction(Strict):
     action_id: str
     tool: ToolKind
@@ -554,6 +562,35 @@ class FraudFamilyDefinition(Strict):
     scenario_defaults: dict[str, bool | int | float | str] = Field(default_factory=dict)
     research_refs: list[str] = Field(default_factory=list)
     definition_sha256: str
+
+
+class VariantChange(Strict):
+    field: str
+    previous_value: bool | int | float | str
+    proposed_value: bool | int | float | str
+    rule_id: str
+
+
+class FamilyVariantProposal(Strict):
+    """Immutable, non-executable candidate derived from one residual cycle."""
+
+    schema_version: str = "forge-family-variant-proposal-v1"
+    proposal_id: str
+    proposal_sha256: str
+    source_cycle_id: str
+    source_strategy_id: str
+    parent_family_slug: str
+    parent_family_version: str
+    parent_definition_sha256: str
+    residual_kinds: list[ResidualKind]
+    gate_coverage: Coverage
+    blue_verdict: Verdict
+    uncovered_gaps: list[str] = Field(default_factory=list)
+    gate_reason_codes: list[str] = Field(default_factory=list)
+    derivation_rule_version: str = "bounded-low-signal-v1"
+    changes: list[VariantChange]
+    candidate_family: FraudFamilyDefinition
+    created_at: datetime
 
 
 class ResearchSnapshot(Strict):
@@ -752,6 +789,7 @@ class CycleRecord(Strict):
     run_id: str | None
     strategy: StrategySpec
     trace_ref: str
+    trace_sha256: str | None = None
     blue_report: BlueReport
     gate_result: GateResult
     detector_features: dict[str, float] = Field(default_factory=dict)
@@ -959,9 +997,19 @@ class EvCycleAccepted(Strict):
     attack_family: str
 
 
+class EvFamilyVariantProposed(Strict):
+    proposal_id: str
+    source_cycle_id: str
+    parent_family_slug: str
+    candidate_family_slug: str
+    proposal_sha256: str
+
+
 class EvCorpusThresholdReached(Strict):
     verified_count: int
     min_required: int
+    corpus_sha256: str = "legacy-unversioned"
+    cycle_ids: list[str] = Field(default_factory=list)
 
 
 class EvModelPromoted(Strict):

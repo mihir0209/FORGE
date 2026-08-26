@@ -11,6 +11,7 @@ import json
 import os
 import zlib
 from datetime import date
+from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -27,6 +28,7 @@ from forge.contracts.contracts import (
     EvCorpusThresholdReached,
     EvCycleAccepted,
     EvCycleRequested,
+    EvFamilyVariantProposed,
     EvGateScored,
     EvidenceCapability,
     EvInvestigationCompleted,
@@ -43,7 +45,7 @@ from forge.contracts.contracts import (
 from forge.detect import gate_score, trace_features
 from forge.detect.incumbent import load_incumbent
 from forge.feature_schema import FEATURE_SCHEMA_VERSION
-from forge.gapmine import fallback_brief, rank
+from forge.gapmine import fallback_brief, propose_variant, rank
 from forge.ids import cycle_id_base, strategy_id_for
 from forge.kb import Registry, registry_from_env, search
 from forge.redteam import compose_draft, novelty
@@ -71,7 +73,7 @@ def _pick_brief(reg: Registry, brief_id: str | None) -> GapBrief:
 
 
 def _cycle_key(data: dict[str, Any]) -> str:
-    return f"{data.get('scenario') or data.get('brief_id') or 'auto'}:{data.get('seed')}"
+    return f"seed:{data.get('seed')}"
 
 
 # ------------------------------------------------------------------- stages
@@ -86,6 +88,12 @@ def stage_gap_mine(_: dict[str, Any] | None = None) -> list[dict[str, object]]:
         seed = zlib.crc32(f"{b.brief_id}:{day}".encode()) & 0x7FFFFFFF
         outs.append(ev_dict(EvCycleRequested(seed=int(seed), brief_id=b.brief_id)))
     return outs
+
+
+def stage_campaign_tick(_: dict[str, Any] | None = None) -> list[dict[str, object]]:
+    from forge.operations.campaign import campaign_tick
+
+    return campaign_tick()
 
 
 def stage_admit_cycle(data: dict[str, Any]) -> bool:
@@ -131,7 +139,9 @@ def stage_release_admission(_: dict[str, Any]) -> dict[str, object]:
 
     supervisor = supervisor_from_env()
     return (
-        supervisor.release_admission(_cycle_key(_)).model_dump(mode="json")
+        supervisor.release_admission(
+            _cycle_key(_), int(_.get("storage_reservation", 25 * 1024**2))
+        ).model_dump(mode="json")
         if supervisor is not None
         else {}
     )
@@ -258,14 +268,32 @@ def stage_finalize(data: dict[str, Any]) -> dict[str, object]:
     spec = StrategySpec.model_validate(load_artifact(ev.spec_ref))
     report = BlueReport.model_validate(load_artifact(ev.report_ref))
     trace = SyntheticTrace.model_validate(load_artifact(ev.trace_ref))
+    from forge.storage import artifact_sha256
 
     accepted = ev.gate.coverage != Coverage.COVERED
-    ordinal = len(reg.cycles()) + 1
+    cycle_id = f"{cycle_id_base(ev.strategy_id, ev.seed)}pipe"
+    existing = reg.cycle(cycle_id)
+    if existing is not None:
+        from forge.operations.runtime import supervisor_from_env
+
+        supervisor = supervisor_from_env()
+        if supervisor is not None:
+            supervisor.cycle_completed(cycle_key=_cycle_key(data))
+        return {
+            "accepted": ev_dict(
+                EvCycleAccepted(
+                    cycle_id=existing.cycle_id,
+                    strategy_id=existing.strategy.strategy_id,
+                    attack_family=existing.strategy.attack_family,
+                )
+            )
+        }
     record = CycleRecord(
-        cycle_id=f"{cycle_id_base(ev.strategy_id, ev.seed)}{ordinal:04d}",
-        run_id=f"pipe-{ev.seed}",
+        cycle_id=cycle_id,
+        run_id=os.environ.get("FORGE_RUN_ID", f"pipe-{ev.seed}"),
         strategy=spec,
-        trace_ref=ev.trace_ref.split("/")[-1].removesuffix(".json"),
+        trace_ref=ev.trace_ref,
+        trace_sha256=artifact_sha256(ev.trace_ref),
         blue_report=report,
         gate_result=ev.gate,
         detector_features=trace_features(trace.observed_view()),
@@ -291,13 +319,77 @@ def stage_finalize(data: dict[str, Any]) -> dict[str, object]:
             )
         )
     }
-    verified = sum(1 for c in reg.cycles() if c.accepted)
-    minimum = settings().pipeline.training_threshold_min
-    if verified >= minimum:
-        out["threshold"] = ev_dict(
-            EvCorpusThresholdReached(verified_count=verified, min_required=minimum)
-        )
     return out
+
+
+def stage_propose_residual_variant(data: dict[str, Any]) -> dict[str, object] | None:
+    """Persist a bounded pending candidate; never activate or execute it."""
+    from forge.families import family_registry_from_env
+
+    event = EvCycleAccepted.model_validate(data)
+    registry = _registry()
+    cycle = registry.cycle(event.cycle_id)
+    if cycle is None or cycle.strategy.family_definition_sha256 is None:
+        return None
+    try:
+        parent = family_registry_from_env().get(
+            cycle.strategy.attack_family, cycle.strategy.family_version
+        )
+    except ValueError:
+        return None
+    proposal = propose_variant(cycle, parent)
+    if proposal is None:
+        return None
+    registry.record_variant_proposal(proposal)
+    return ev_dict(
+        EvFamilyVariantProposed(
+            proposal_id=proposal.proposal_id,
+            source_cycle_id=proposal.source_cycle_id,
+            parent_family_slug=proposal.parent_family_slug,
+            candidate_family_slug=proposal.candidate_family.slug,
+            proposal_sha256=proposal.proposal_sha256,
+        )
+    )
+
+
+def stage_claim_training_corpus(data: dict[str, Any]) -> dict[str, object] | None:
+    """Claim each accepted corpus exactly once across every detection track."""
+    EvCycleAccepted.model_validate(data)
+    registry = _registry()
+    accepted = sorted(
+        (cycle for cycle in registry.cycles() if cycle.accepted),
+        key=lambda cycle: (cycle.recorded_at, cycle.cycle_id),
+    )
+    minimum = settings().pipeline.training_threshold_min
+    if len(accepted) < minimum:
+        return None
+    batch_count = minimum + ((len(accepted) - minimum) // 5) * 5
+    accepted = accepted[:batch_count]
+    family_counts: dict[str, int] = {}
+    for cycle in accepted:
+        family = cycle.strategy.attack_family
+        family_counts[family] = family_counts.get(family, 0) + 1
+    if len(family_counts) < 3 or sum(count >= 2 for count in family_counts.values()) < 2:
+        return None
+    corpus_seed = [
+        cycle.model_dump(mode="json")
+        for cycle in accepted
+    ]
+    corpus_sha256 = sha256(
+        json.dumps(corpus_seed, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    if not registry.claim_training_corpus(
+        f"family-holdout-v1-batch-{batch_count}", len(accepted)
+    ):
+        return None
+    return ev_dict(
+        EvCorpusThresholdReached(
+            verified_count=len(accepted),
+            min_required=minimum,
+            corpus_sha256=corpus_sha256,
+            cycle_ids=[cycle.cycle_id for cycle in accepted],
+        )
+    )
 
 
 # ----------------------------------------------------------------- helpers
@@ -318,9 +410,29 @@ def save_trace(trace_id: str, payload: dict[str, Any]) -> str:
 def stage_build_dataset(data: dict[str, Any]) -> dict[str, object]:
     """corpus.threshold_reached -> dataset built."""
     from forge.detect.dataset import build_family_holdout_dataset as _build
+    from forge.kb import InMemoryRegistry
 
-    # registry is the source of truth; seeds for negatives come from event or defaults
-    reg = _registry()
+    event = EvCorpusThresholdReached.model_validate(data)
+    source = _registry()
+    reg: Registry = source
+    if event.cycle_ids:
+        frozen = InMemoryRegistry()
+        for cycle_id in event.cycle_ids:
+            cycle = source.cycle(cycle_id)
+            if cycle is None:
+                raise ValueError(f"training corpus cycle is unavailable: {cycle_id}")
+            frozen.record_cycle(cycle)
+        reconstructed = sorted(frozen.cycles(), key=lambda cycle: (cycle.recorded_at, cycle.cycle_id))
+        digest = sha256(
+            json.dumps(
+                [cycle.model_dump(mode="json") for cycle in reconstructed],
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        if digest != event.corpus_sha256:
+            raise ValueError("training corpus checksum mismatch")
+        reg = frozen
     seed = int(data.get("seed", 0))
     ref = _build(reg, n_negatives_per_split=40, dataset_seed=seed)
     return ref.model_dump(mode="json")
@@ -368,6 +480,34 @@ def stage_install(data: dict[str, Any]) -> dict[str, object]:
     verdict = PromotionVerdict.model_validate(data["verdict"])
     report = CandidateReport.model_validate(data["report"])
     installed = install_if_passed(report, verdict)
+    models_root = Path(os.environ.get("FORGE_DATA_DIR", "data")) / "models"
+    models_root.mkdir(parents=True, exist_ok=True)
+    evaluation = {
+        "candidate_id": report.candidate_id,
+        "dataset_id": report.dataset.dataset_id,
+        "evaluation_protocol": report.evaluation_protocol,
+        "passed": verdict.passed,
+        "installed": installed,
+        "checks": verdict.checks,
+        "notes": verdict.notes,
+        "metrics": {
+            "roc_auc": report.roc_auc,
+            "pr_auc": report.pr_auc,
+            "recall": report.recall,
+            "brier": report.brier,
+            "p95_latency_ms": report.p95_latency_ms,
+        },
+    }
+    candidate_path = models_root / "candidates" / f"{report.candidate_id}.promotion.json"
+    candidate_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(evaluation, indent=2, sort_keys=True)
+    if candidate_path.exists() and candidate_path.read_text() != payload:
+        raise ValueError("candidate promotion decision is immutable")
+    candidate_path.write_text(payload)
+    evaluation_path = models_root / "latest-evaluation.json"
+    evaluation_temp = evaluation_path.with_suffix(".tmp")
+    evaluation_temp.write_text(payload)
+    evaluation_temp.replace(evaluation_path)
     from forge.operations.runtime import notifier_from_env, supervisor_from_env
 
     supervisor = supervisor_from_env()

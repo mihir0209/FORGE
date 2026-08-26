@@ -9,13 +9,10 @@ services:
       INNGEST_DEV: "0"
     volumes:
       - ./src/forge:/usr/local/lib/python3.12/site-packages/forge:ro
-      - forge-data:/app/data
+      - ./data:/app/data
   worker:
     environment:
       INNGEST_DEV: "0"
     volumes:
       - ./src/forge:/usr/local/lib/python3.12/site-packages/forge:ro
-      - forge-data:/app/data
-
-volumes:
-  forge-data:
+      - ./data:/app/data

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from functools import lru_cache
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, cast
 
@@ -38,3 +39,7 @@ def save_artifact(kind: str, art_id: str, payload: dict[str, Any]) -> str:
 def load_artifact(ref: str) -> dict[str, Any]:
     path = artifacts_root() / ref
     return cast("dict[str, Any]", json.loads(path.read_text()))
+
+
+def artifact_sha256(ref: str) -> str:
+    return sha256((artifacts_root() / ref).read_bytes()).hexdigest()

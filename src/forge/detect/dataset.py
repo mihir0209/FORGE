@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -126,8 +127,13 @@ def build_family_holdout_dataset(
     if len(families) < 3:
         raise ValueError("family holdout requires at least three distinct attack families")
 
-    calibration_family = calibration_family or families[-2]
-    test_family = test_family or families[-1]
+    family_counts = Counter(cycle.strategy.attack_family for cycle in cycles)
+    holdout_eligible = sorted(family for family, count in family_counts.items() if count >= 2)
+    if calibration_family is None or test_family is None:
+        if len(holdout_eligible) < 2:
+            raise ValueError("family holdout requires two families with at least two positive cycles")
+        calibration_family = calibration_family or holdout_eligible[-2]
+        test_family = test_family or holdout_eligible[-1]
     if calibration_family == test_family:
         raise ValueError("calibration and test families must differ")
     if calibration_family not in families or test_family not in families:

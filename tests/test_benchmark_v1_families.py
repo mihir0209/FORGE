@@ -6,6 +6,7 @@ import pytest
 
 from forge.actor_sandbox import ActorSandbox
 from forge.artifacts import LocalArtifactStore
+from forge.cli.main import main
 from forge.contracts.contracts import (
     FamilyEvidenceStatus,
     FraudFamilyDefinition,
@@ -13,6 +14,8 @@ from forge.contracts.contracts import (
     WorldSeed,
 )
 from forge.families import BUILTIN_FAMILIES, FamilyRegistry, build_app_plan, define_family
+from forge.gapmine import propose_variant
+from forge.kb import SQLiteRegistry
 
 
 def test_catalog_has_evidence_supported_immutable_families() -> None:
@@ -76,6 +79,19 @@ def test_dynamic_family_reload_selects_template_without_slug_branch(tmp_path: Pa
     assert reloaded.definition_sha256 == family.definition_sha256
 
 
+def test_dynamic_family_is_reloaded_from_database(tmp_path: Path) -> None:
+    source = FamilyRegistry().get("deepfake_executive_bec")
+    payload = source.model_dump(exclude={"definition_sha256"})
+    payload.update(slug="database_backed_family", version="1.0.0")
+    family = define_family(**payload)
+    database = SQLiteRegistry(tmp_path / "registry.sqlite")
+
+    FamilyRegistry(registry=database).register(family)
+
+    reloaded = FamilyRegistry(registry=SQLiteRegistry(tmp_path / "registry.sqlite"))
+    assert reloaded.get(family.slug, family.version) == family
+
+
 def test_dynamic_family_plan_executes_with_safe_allowlisted_tools(tmp_path: Path) -> None:
     family = FamilyRegistry().get("ai_investment_coaching")
     plan = build_app_plan(family, "benchmark-execution", 23)
@@ -132,3 +148,81 @@ def test_runtime_registry_requires_approval_for_external_family(tmp_path: Path) 
         FamilyRegistry(tmp_path / "families", require_approval=True).register(
             define_family(**payload)
         )
+
+
+def test_family_register_cli_persists_approved_definition(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = FamilyRegistry().get("deepfake_executive_bec")
+    payload = source.model_dump(exclude={"definition_sha256"})
+    payload.update(slug="approved_database_family", version="1.0.0")
+    family = define_family(**payload)
+    families_root = tmp_path / "families"
+    research_root = tmp_path / "research"
+    families_root.mkdir()
+    definition = families_root / f"{family.slug}-{family.version}.json"
+    definition.write_text(family.model_dump_json(indent=2))
+
+    from forge.research_snapshots import ResearchSnapshotStore
+
+    snapshot_store = ResearchSnapshotStore(research_root)
+    snapshots = [
+        snapshot_store.record(
+            source_url=url,
+            title="Primary source",
+            content=f"evidence from {url}",
+            provider="test",
+            parser_version="test-v1",
+        )
+        for url in family.research_refs
+    ]
+    snapshot_store.approve_family(
+        family,
+        [snapshot.snapshot_id for snapshot in snapshots],
+        reviewer="test-reviewer",
+        approved=True,
+    )
+    database = tmp_path / "registry.sqlite"
+
+    assert main(
+        ["family-register", "--definition", str(definition), "--db", str(database)]
+    ) == 0
+    assert SQLiteRegistry(database).families() == [family]
+    assert family.slug in capsys.readouterr().out
+
+
+def test_residual_cycle_creates_bounded_pending_variant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from forge.app_scam_runner import run_app_scam_cycle
+
+    monkeypatch.setenv("FORGE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FORGE_REGISTRY_PATH", str(tmp_path / "runtime.sqlite"))
+    family = FamilyRegistry().get("ai_bank_impersonation")
+    database = SQLiteRegistry(tmp_path / "registry.sqlite")
+    cycle = run_app_scam_cycle(
+        seed=401,
+        cycle_id="residual-cycle",
+        registry=database,
+        store=LocalArtifactStore(tmp_path / "objects"),
+        variant=family.slug,
+    )
+    proposal = propose_variant(cycle, family)
+    assert proposal is not None
+    assert proposal.source_cycle_id == cycle.cycle_id
+    assert proposal.candidate_family.allowed_tools == family.allowed_tools
+    assert proposal.candidate_family.scenario_template == family.scenario_template
+    assert proposal.candidate_family.slug != family.slug
+    assert {change.field for change in proposal.changes} <= {
+        "behavioral_distance",
+        "amount_minor",
+        "warning_overridden",
+        "call_active",
+        "graph_motif",
+    }
+
+    database.record_variant_proposal(proposal)
+    database.record_variant_proposal(proposal)
+    assert database.variant_proposals() == [proposal]
+    with pytest.raises(ValueError):
+        FamilyRegistry().get(proposal.candidate_family.slug)

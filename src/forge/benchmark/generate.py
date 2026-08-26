@@ -74,7 +74,8 @@ def _execute_purpose(
     )
     return CycleRecord(
         cycle_id=cycle_id, run_id=f"benchmark-{purpose.value}-{seed}", strategy=strategy,
-        trace_ref=trace_artifact.uri, blue_report=report, gate_result=gate,
+        trace_ref=trace_artifact.uri, trace_sha256=trace_artifact.sha256,
+        blue_report=report, gate_result=gate,
         detector_features=trace_features(view), feature_schema_version=FEATURE_SCHEMA_VERSION,
         detection_track=DetectionTrack.AI_ASSISTED_APP,
         evidence_capabilities=[EvidenceCapability.DEVICE_INTEGRITY, EvidenceCapability.APP_BEHAVIOR,

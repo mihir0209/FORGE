@@ -9,6 +9,8 @@ Flow: gap.mine → cycle.requested → compose → strategy.proposed → simulat
 trace.completed → investigate → investigation.completed → gate.scored →
 finalize → cycle.accepted (+ corpus.threshold_reached).
 
+Residual cycle outcomes also produce non-executable family variant proposals.
+
 Concurrency keys per attack_family keep workers diversified (architecture §2.9).
 """
 
@@ -48,6 +50,19 @@ async def gap_mine(ctx: inngest.Context) -> None:
         await ctx.step.send_event(
             "request_cycles",
             [inngest.Event(name="cycle.requested", data=p) for p in payloads],
+        )
+
+
+@client.create_function(
+    fn_id="campaign_tick",
+    trigger=inngest.TriggerCron(cron="TZ=UTC */10 * * * *"),
+)
+async def campaign_tick(ctx: inngest.Context) -> None:
+    payloads = await _run_step(ctx.step, "build_campaign_slot", stages.stage_campaign_tick)
+    if payloads:
+        await ctx.step.send_event(
+            "request_campaign_cycles",
+            [inngest.Event(name="cycle.requested", data=payload) for payload in payloads],
         )
 
 
@@ -141,10 +156,45 @@ async def cycle_finalize(ctx: inngest.Context) -> None:
     data = dict(ctx.event.data)
     out = await _run_step(ctx.step, "finalize", stages.stage_finalize, data)
 
-    events: list[inngest.Event] = [inngest.Event(name="cycle.accepted", data=out["accepted"])]
-    if "threshold" in out:
-        events.append(inngest.Event(name="corpus.threshold_reached", data=out["threshold"]))
-    await ctx.step.send_event("emit_final", events)
+    await ctx.step.send_event(
+        "emit_final", inngest.Event(name="cycle.accepted", data=out["accepted"])
+    )
+
+
+@client.create_function(
+    fn_id="residual_variant_propose",
+    trigger=inngest.TriggerEvent(event="cycle.accepted"),
+)
+async def residual_variant_propose(ctx: inngest.Context) -> None:
+    proposal = await _run_step(
+        ctx.step,
+        "propose_bounded_variant",
+        stages.stage_propose_residual_variant,
+        dict(ctx.event.data),
+    )
+    if proposal is not None:
+        await ctx.step.send_event(
+            "emit_variant_proposal",
+            inngest.Event(name="family_variant.proposed", data=proposal),
+        )
+
+
+@client.create_function(
+    fn_id="training_corpus_observe",
+    trigger=inngest.TriggerEvent(event="cycle.accepted"),
+)
+async def training_corpus_observe(ctx: inngest.Context) -> None:
+    threshold = await _run_step(
+        ctx.step,
+        "claim_training_corpus",
+        stages.stage_claim_training_corpus,
+        dict(ctx.event.data),
+    )
+    if threshold is not None:
+        await ctx.step.send_event(
+            "emit_corpus_threshold",
+            inngest.Event(name="corpus.threshold_reached", data=threshold),
+        )
 
 
 @client.create_function(
@@ -191,11 +241,14 @@ async def worker_probe(ctx: inngest.Context) -> None:
 
 functions: list[object] = [
     gap_mine,
+    campaign_tick,
     cycle_compose,
     cycle_simulate,
     cycle_investigate,
     gate_score_fn,
     cycle_finalize,
+    residual_variant_propose,
+    training_corpus_observe,
     run_supervisor_tick,
     train_round,
     worker_probe,

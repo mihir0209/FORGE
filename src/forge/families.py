@@ -7,7 +7,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from forge.contracts.contracts import (
     ActionPlan,
@@ -21,6 +21,9 @@ from forge.contracts.contracts import (
 )
 from forge.payment_rails import rail_profile
 from forge.research_snapshots import ResearchSnapshotStore
+
+if TYPE_CHECKING:
+    from forge.kb import Registry
 
 _SCENARIO_KEYS = {
     "call_active",
@@ -145,19 +148,35 @@ BUILTIN_FAMILIES: tuple[FraudFamilyDefinition, ...] = (
 
 
 class FamilyRegistry:
-    def __init__(self, root: Path | None = None, *, require_approval: bool = False) -> None:
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        require_approval: bool = False,
+        registry: Registry | None = None,
+    ) -> None:
         self.root = root
         self.require_approval = require_approval
+        self.registry = registry
         self._families = {(f.slug, f.version): f for f in BUILTIN_FAMILIES}
         if root and root.exists():
             for path in sorted(root.glob("*.json")):
                 family = FraudFamilyDefinition.model_validate_json(path.read_text())
-                self._register(family, persist=False)
+                self._register(family, persist=False, persist_database=False)
+        if registry is not None:
+            for family in registry.families():
+                self._register(family, persist=False, persist_database=False)
 
     def register(self, family: FraudFamilyDefinition) -> None:
-        self._register(family, persist=True)
+        self._register(family, persist=True, persist_database=True)
 
-    def _register(self, family: FraudFamilyDefinition, *, persist: bool) -> None:
+    def _register(
+        self,
+        family: FraudFamilyDefinition,
+        *,
+        persist: bool,
+        persist_database: bool,
+    ) -> None:
         if not family.allowed_tools or not set(family.scenario_defaults) <= _SCENARIO_KEYS:
             raise ValueError("family uses unsupported tools or scenario parameters")
         rail_profile(family.rail)
@@ -196,22 +215,24 @@ class FamilyRegistry:
                 stored = FraudFamilyDefinition.model_validate_json(target.read_text())
                 if stored.definition_sha256 != family.definition_sha256:
                     raise ValueError("family version is immutable")
-                return
-            fd, temporary = tempfile.mkstemp(prefix=f".{target.name}.", dir=self.root)
-            try:
-                with os.fdopen(fd, "w") as stream:
-                    stream.write(payload)
-                    stream.flush()
-                    os.fsync(stream.fileno())
+            else:
+                fd, temporary = tempfile.mkstemp(prefix=f".{target.name}.", dir=self.root)
                 try:
-                    os.link(temporary, target)
-                except FileExistsError:
-                    stored = FraudFamilyDefinition.model_validate_json(target.read_text())
-                    if stored.definition_sha256 != family.definition_sha256:
-                        raise ValueError("family version is immutable") from None
-            finally:
-                if os.path.exists(temporary):
-                    os.unlink(temporary)
+                    with os.fdopen(fd, "w") as stream:
+                        stream.write(payload)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    try:
+                        os.link(temporary, target)
+                    except FileExistsError:
+                        stored = FraudFamilyDefinition.model_validate_json(target.read_text())
+                        if stored.definition_sha256 != family.definition_sha256:
+                            raise ValueError("family version is immutable") from None
+                finally:
+                    if os.path.exists(temporary):
+                        os.unlink(temporary)
+        if self.registry is not None and persist_database:
+            self.registry.record_family(family)
         self._families[key] = family
 
     def get(self, slug: str, version: str = "1.0.0") -> FraudFamilyDefinition:
@@ -225,8 +246,10 @@ class FamilyRegistry:
 
 
 def family_registry_from_env() -> FamilyRegistry:
+    from forge.kb import registry_from_env
+
     root = Path(os.environ.get("FORGE_DATA_DIR", "data")) / "families"
-    return FamilyRegistry(root, require_approval=True)
+    return FamilyRegistry(root, require_approval=True, registry=registry_from_env())
 
 
 def build_app_plan(

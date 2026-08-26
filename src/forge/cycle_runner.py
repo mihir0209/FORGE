@@ -7,6 +7,8 @@ the CLI, and judge-facing replay.
 
 from __future__ import annotations
 
+import json
+import os
 from hashlib import sha256
 from typing import TYPE_CHECKING
 
@@ -29,6 +31,7 @@ from forge.kb import Registry, search
 from forge.redteam import compose, compose_draft, novelty
 from forge.redteam.fixtures import draft_for_tactic
 from forge.simulate import simulate
+from forge.storage import artifact_sha256, save_artifact
 
 if TYPE_CHECKING:
     from forge.reasoning import ReasoningClient
@@ -93,12 +96,16 @@ def run_offline_cycle(
     gate = gate_score(view, RuleBaselineDetector())
 
     accepted = verdict.novel and gate.coverage.value != "covered"
+    trace_ref = save_artifact(
+        "traces", result.trace.trace_id, json.loads(result.trace.model_dump_json())
+    )
     ordinal = len(registry.cycles()) + 1  # deterministic, unique per run order
     record = CycleRecord(
         cycle_id=f"{cycle_id_base(spec.strategy_id, seed)}{ordinal:04d}",
-        run_id=f"offline-{seed}",
+        run_id=os.environ.get("FORGE_RUN_ID", f"offline-{seed}"),
         strategy=spec,
-        trace_ref=result.trace.trace_id,
+        trace_ref=trace_ref,
+        trace_sha256=artifact_sha256(trace_ref),
         blue_report=report,
         gate_result=gate,
         detector_features=trace_features(view),

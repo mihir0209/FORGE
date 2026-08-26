@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 from forge.actor_sandbox import ActorSandbox
@@ -98,9 +99,10 @@ def run_app_scam_cycle(
     trace_artifact = store.put_json("traces", trace.trace_id, trace.model_dump(mode="json"))
     record = CycleRecord(
         cycle_id=cycle_id,
-        run_id=f"app-scam-{seed}",
+        run_id=os.environ.get("FORGE_RUN_ID", f"app-scam-{seed}"),
         strategy=strategy,
         trace_ref=trace_artifact.uri,
+        trace_sha256=trace_artifact.sha256,
         blue_report=report,
         gate_result=gate,
         detector_features=trace_features(observed),

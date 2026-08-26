@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Activity,
   Bot,
@@ -6,11 +7,16 @@ import {
   ChevronRight,
   Crosshair,
   Database,
+  FileText,
   FlaskConical,
   Gauge,
+  GitBranch,
+  HardDrive,
   Menu,
+  Play,
   Radar,
   RefreshCw,
+  ServerCog,
   ShieldCheck,
   Sparkles,
   Target,
@@ -21,10 +27,13 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 import { toast } from "sonner";
 import { api } from "./api";
 import { useLabStore } from "./store";
-import type { Coverage, CycleDetail, CycleSummary, Gap, ModelCard, View } from "./types";
+import type { Coverage, CycleDetail, CycleSummary, Gap, ModelCard, Operations, PendingVariant, StrategyRepository, StrategyRepositoryEntry, View } from "./types";
 
 const nav: Array<{ id: View; label: string; icon: typeof Activity }> = [
   { id: "overview", label: "Control room", icon: Activity },
+  { id: "loop", label: "Closed loop", icon: GitBranch },
+  { id: "repository", label: "Strategy repository", icon: FileText },
+  { id: "operations", label: "Operations", icon: ServerCog },
   { id: "attack", label: "Attack lab", icon: Crosshair },
   { id: "defense", label: "Defense lab", icon: ShieldCheck },
   { id: "model", label: "Model registry", icon: BrainCircuit },
@@ -51,19 +60,25 @@ export default function App() {
   const [gaps, setGaps] = useState<Gap[]>([]);
   const [model, setModel] = useState<ModelCard | null>(null);
   const [detail, setDetail] = useState<CycleDetail | null>(null);
+  const [operations, setOperations] = useState<Operations | null>(null);
+  const [variants, setVariants] = useState<PendingVariant[]>([]);
+  const [strategies, setStrategies] = useState<StrategyRepository | null>(null);
   const [loading, setLoading] = useState(true);
   const [mobileNav, setMobileNav] = useState(false);
 
   async function refresh() {
     setLoading(true);
     try {
-      const [nextCycles, nextCoverage, nextGaps, nextModel] = await Promise.all([
-        api.cycles(), api.coverage(), api.gaps(), api.model()
+      const [nextCycles, nextCoverage, nextGaps, nextModel, nextOperations, nextVariants, nextStrategies] = await Promise.all([
+        api.cycles(), api.coverage(), api.gaps(), api.model(), api.operations(), api.variants(), api.strategies()
       ]);
       setCycles(nextCycles);
       setCoverage(nextCoverage);
       setGaps(nextGaps);
       setModel(nextModel);
+      setOperations(nextOperations);
+      setVariants(nextVariants);
+      setStrategies(nextStrategies);
       if (!selectedCycle && nextCycles[0]) selectCycle(nextCycles[0].cycle_id);
     } catch (error) {
       toast.error("Backend unavailable", { description: error instanceof Error ? error.message : "Unknown error" });
@@ -72,7 +87,27 @@ export default function App() {
     }
   }
 
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    void Promise.all([api.cycles(), api.coverage(), api.gaps(), api.model(), api.operations(), api.variants(), api.strategies()])
+      .then(([nextCycles, nextCoverage, nextGaps, nextModel, nextOperations, nextVariants, nextStrategies]) => {
+        if (!active) return;
+        setCycles(nextCycles);
+        setCoverage(nextCoverage);
+        setGaps(nextGaps);
+        setModel(nextModel);
+        setOperations(nextOperations);
+        setVariants(nextVariants);
+        setStrategies(nextStrategies);
+        if (nextCycles[0]) selectCycle(nextCycles[0].cycle_id);
+      })
+      .catch((error) => {
+        if (active) toast.error("Backend unavailable", { description: error instanceof Error ? error.message : "Unknown error" });
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [selectCycle]);
 
   useEffect(() => {
     if (!selectedCycle) return;
@@ -100,7 +135,7 @@ export default function App() {
         </nav>
         <div className="rail-spacer" />
         <div className="system-card">
-          <div className="live-dot" /><span>PIPELINE ONLINE</span>
+          <div className={`live-dot live-${operations?.overall_status ?? "unknown"}`} /><span>{(operations?.overall_status ?? "unknown").replace("_", " ")}</span>
           <small>{model?.detector_id ?? "rule-baseline-v1"}</small>
         </div>
         <p className="rail-caption">Fraud Offense-defense<br />Research & Generation Engine</p>
@@ -116,6 +151,9 @@ export default function App() {
 
         <div className="page">
           {view === "overview" && <Overview cycles={cycles} coverage={coverage} model={model} gaps={gaps} onCycle={(id) => { selectCycle(id); setView("attack"); }} />}
+          {view === "loop" && <ClosedLoop cycles={cycles} detail={detail} selected={selectedCycle} variants={variants} operations={operations} onSelect={selectCycle} />}
+          {view === "repository" && <StrategyRepositoryView repository={strategies} onRepository={setStrategies} />}
+          {view === "operations" && <OperationsView operations={operations} onRefresh={refresh} />}
           {view === "attack" && <AttackLab cycles={cycles} detail={detail} selected={selectedCycle} onSelect={selectCycle} />}
           {view === "defense" && <DefenseLab cycles={cycles} detail={detail} selected={selectedCycle} onSelect={selectCycle} />}
           {view === "model" && <ModelDashboard model={model} cycles={cycles} />}
@@ -175,6 +213,148 @@ function Overview({ cycles, coverage, model, gaps, onCycle }: { cycles: CycleSum
     </div>
   </>;
 }
+
+function ClosedLoop({ cycles, detail, selected, variants, operations, onSelect }: { cycles: CycleSummary[]; detail: CycleDetail | null; selected: string | null; variants: PendingVariant[]; operations: Operations | null; onSelect: (id: string) => void }) {
+  const linked = variants.find((variant) => variant.source_cycle_id === detail?.cycle_id);
+  const gap = detail?.blue_report.uncovered_gaps[0];
+  const corpusReady = (operations?.training.accepted_cycles ?? 0) >= (operations?.training.threshold ?? Infinity);
+  return <>
+    <PageTitle kicker="Competition proof · identify → generate → defend → learn" title="Closed Loop" copy="One evidence chain from a ranked fraud hypothesis to a blind decision, residual variant and content-addressed hardening corpus." />
+    <div className="loop-toolbar">
+      <CycleSelector cycles={cycles} selected={selected} onSelect={onSelect} />
+      <button className="primary-action" onClick={() => void api.runDemo().then((result) => toast.success("Demo suite queued", { description: `${result.families.length} family-disjoint scenarios` })).catch((error) => toast.error("Demo queue failed", { description: String(error) }))}><Play size={15} /> Run demo suite</button>
+    </div>
+    <div className="plane-lane"><span>CONTROL PLANE</span><b>Inngest schedules, retries and persists state</b><i /><span>WORKER PLANE</span><b>Compose · simulate · investigate · score · learn</b></div>
+    <div className="loop-grid">
+      <LoopStage number="01" tone="purple" title="Identify" label="Threat gap" body={gap ?? detail?.strategy.evasion_hypothesis ?? "Select a cycle to inspect its research objective."} meta={detail ? `${detail.strategy.f3.tactic} · ${detail.strategy.f3.techniques.join(", ") || "family evidence"}` : "F3-ranked research"} />
+      <LoopStage number="02" tone="red" title="Generate" label="Sandbox trace" body={detail?.strategy.fraud_objective ?? "A reviewed family definition becomes a deterministic, labeled synthetic journey."} meta={detail ? `${detail.strategy.attack_family} · ${detail.trace_ref}` : "Typed tools · hidden truth"} />
+      <LoopStage number="03" tone="blue" title="Defend" label="Blind evidence" body={detail ? `${detail.blue_report.verdict} at ${pct(detail.blue_report.confidence)} confidence; detector action ${detail.gate_result.action}.` : "Blue team receives only the observed trace and evidence-linked signals."} meta={detail ? `${detail.gate_result.detector_id} · score ${pct(detail.gate_result.score)}` : "ObservedTraceView only"} />
+      <LoopStage number="04" tone="green" title="Learn" label="Residual hardening" body={linked ? `${linked.status} bounded variant ${linked.candidate_family_slug} changes ${linked.changes.length} reviewed parameters.` : detail?.gate_result.coverage === "covered" ? "Defense covered this mechanism; the gap miner advances to weaker families." : "Residual awaits an automatically persisted bounded proposal."} meta={linked ? `${linked.residual_kinds.join(" · ")} · non-executable until approval` : corpusReady ? "Training corpus threshold reached" : `${operations?.training.accepted_cycles ?? 0}/${operations?.training.threshold ?? 0} accepted cycles`} />
+    </div>
+  </>;
+}
+
+function StrategyRepositoryView({ repository, onRepository }: { repository: StrategyRepository | null; onRepository: (repository: StrategyRepository) => void }) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const [source, setSource] = useState(false);
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+  const entries = repository?.items ?? [];
+  const entry = entries.find((item) => item.strategy_id === selected) ?? entries[0] ?? null;
+  async function load(nextOffset: number, nextQuery = query) {
+    setLoading(true);
+    try {
+      const next = await api.strategies(nextQuery, nextOffset);
+      onRepository(next);
+      setSelected(next.items[0]?.strategy_id ?? null);
+    } catch (error) {
+      toast.error("Strategy repository unavailable", { description: String(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
+  return <>
+    <PageTitle kicker="Red hypotheses · blue handling · immutable evidence" title="Strategy Repository" copy="The current strategy ledger in readable form. Each red-team hypothesis is paired with its latest blind blue-team response and can be inspected as canonical Markdown." />
+    <section className="metric-strip repository-metrics">
+      <Metric label="Persisted strategies" value={repository?.total ?? 0} note="canonical registry records" />
+      <Metric label="Investigated" value={repository?.summary.investigated ?? 0} note="latest blue handling linked" />
+      <Metric label="Awaiting handling" value={repository?.summary.unhandled ?? 0} note="red strategy only" alert={(repository?.summary.unhandled ?? 0) > 0} />
+      <Metric label="Families represented" value={repository?.summary.families ?? 0} note="within the filtered ledger" />
+    </section>
+    <div className="repository-layout">
+      <section className="panel repository-index">
+        <PanelHeader icon={FileText} overline="CURRENT LEDGER" title={`${repository?.total ?? 0} strategy dossiers`} />
+        <form className="repository-search" onSubmit={(event) => { event.preventDefault(); void load(0); }}><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search family, tactic, ID..." aria-label="Search strategies" /><button disabled={loading}>Search</button></form>
+        {entries.map((item) => <button key={item.strategy_id} className={entry?.strategy_id === item.strategy_id ? "selected" : ""} onClick={() => setSelected(item.strategy_id)}>
+          <div><strong>{item.attack_family.replaceAll("_", " ")}</strong><small>{item.strategy_id}</small></div>
+          <StatusPill status={item.gate_result?.coverage ?? "unhandled"} />
+          <code>{item.fingerprint}</code>
+        </button>)}
+        {!entries.length && <EmptyState title="No strategies persisted" copy="Run a reviewed red-team cycle to populate this repository." />}
+        {(repository?.total ?? 0) > (repository?.limit ?? 25) && <div className="repository-pager"><button disabled={loading || (repository?.offset ?? 0) === 0} onClick={() => void load(Math.max(0, (repository?.offset ?? 0) - (repository?.limit ?? 25)))}>Previous</button><span>{(repository?.offset ?? 0) + 1}-{Math.min((repository?.offset ?? 0) + entries.length, repository?.total ?? 0)} / {repository?.total ?? 0}</span><button disabled={loading || (repository?.offset ?? 0) + (repository?.limit ?? 25) >= (repository?.total ?? 0)} onClick={() => void load((repository?.offset ?? 0) + (repository?.limit ?? 25))}>Next</button></div>}
+      </section>
+      <section className="panel repository-document">
+        {entry ? <>
+          <header className="document-toolbar"><div><span>STRATEGY / BLUE RESPONSE</span><strong>{entry.strategy_id}</strong></div><div><button className={!source ? "active" : ""} onClick={() => setSource(false)}>Readable</button><button className={source ? "active" : ""} onClick={() => setSource(true)}>Markdown</button></div></header>
+          {source ? <pre className="markdown-source">{entry.markdown}</pre> : <StrategyDocument entry={entry} />}
+        </> : <EmptyState title="Select a strategy" copy="The paired red and blue dossier will appear here." />}
+      </section>
+    </div>
+  </>;
+}
+
+function StrategyDocument({ entry }: { entry: StrategyRepositoryEntry }) {
+  const strategy = entry.strategy;
+  const report = entry.blue_report;
+  return <article className="strategy-document">
+    <div className="document-title"><span>RED TEAM STRATEGY</span><h2>{entry.attack_family.replaceAll("_", " ")}</h2><p>{strategy.fraud_objective}</p></div>
+    <div className="document-meta"><code>{strategy.f3.tactic}</code>{strategy.f3.techniques.map((item) => <code key={item}>{item}</code>)}<code>{strategy.rail} / {strategy.channel}</code><code>v{entry.family_version}</code></div>
+    <DocumentSection title="Behavioral sequence"><ol>{strategy.behavioral_sequence.map((step) => <li key={step}>{step}</li>)}</ol></DocumentSection>
+    <div className="document-columns"><DocumentSection title="GenAI leverage"><p>{strategy.genai_leverage}</p></DocumentSection><DocumentSection title="Evasion hypothesis"><p>{strategy.evasion_hypothesis}</p></DocumentSection></div>
+    <div className="blue-divider"><span>BLUE TEAM HANDLING</span><i /></div>
+    {report && entry.gate_result ? <>
+      <div className="handling-summary"><div><span>Verdict</span><strong>{report.verdict}</strong></div><div><span>Confidence</span><strong>{pct(report.confidence)}</strong></div><div><span>Gate action</span><strong>{entry.gate_result.action}</strong></div><div><span>Coverage</span><StatusPill status={entry.gate_result.coverage} /></div></div>
+      <DocumentSection title="Signals and cited evidence"><div className="repository-signals">{report.signals.map((signal) => <div key={signal.name}><strong>{signal.name.replaceAll("_", " ")} <b>{pct(signal.strength)}</b></strong><p>{signal.description}</p><small>{signal.evidence_refs.join(" · ") || "No cited event"}</small></div>)}</div></DocumentSection>
+      <div className="document-columns"><DocumentSection title="Recommended mitigations"><ul>{report.mitigations.map((item) => <li key={item}>{item}</li>)}</ul></DocumentSection><DocumentSection title="Uncovered gaps"><ul>{report.uncovered_gaps.length ? report.uncovered_gaps.map((item) => <li key={item}>{item}</li>) : <li>None reported.</li>}</ul></DocumentSection></div>
+    </> : <div className="unhandled-note">No blue-team investigation has been persisted for this strategy.</div>}
+  </article>;
+}
+
+function DocumentSection({ title, children }: { title: string; children: ReactNode }) {
+  return <section className="document-section"><h3>{title}</h3>{children}</section>;
+}
+
+function LoopStage({ number, tone, title, label, body, meta }: { number: string; tone: string; title: string; label: string; body: string; meta: string }) {
+  return <section className={`panel loop-stage loop-${tone}`}><div className="loop-number">{number}</div><span>{label}</span><h2>{title}</h2><p>{body}</p><code>{meta}</code></section>;
+}
+
+function OperationsView({ operations, onRefresh }: { operations: Operations | null; onRefresh: () => Promise<void> }) {
+  const [acting, setActing] = useState(false);
+  async function probe() {
+    setActing(true);
+    try {
+      const result = await api.probeWorkers();
+      toast.success("Worker probes queued", { description: `${result.requested} independent probe jobs` });
+      window.setTimeout(() => void onRefresh(), 5000);
+    } catch (error) {
+      toast.error("Worker probe failed", { description: String(error) });
+    } finally {
+      setActing(false);
+    }
+  }
+  const counts = operations?.counts;
+  const workers = operations?.worker_plane;
+  return <>
+    <PageTitle kicker="Runtime truth · control plane / worker plane" title="Operations" copy="Live evidence for orchestration, worker responsiveness, structured records, artifact stores, model governance and recovery posture." />
+    <section className="metric-strip">
+      <Metric label="Observed workers" value={workers?.observed ?? 0} suffix={` / ${workers?.configured ?? 0}`} note={workers?.observed === null ? "probe evidence unavailable" : workers?.detail ?? "not observed"} alert={workers?.status !== "healthy"} />
+      <Metric label="Structured cycles" value={counts?.cycles ?? 0} note={`${counts?.accepted_cycles ?? 0} accepted`} />
+      <Metric label="Pending variants" value={counts?.pending_variants ?? 0} note="review-gated · non-executable" alert={(counts?.pending_variants ?? 0) > 0} />
+      <Metric label="Training corpora" value={counts?.training_corpora ?? 0} note={`${operations?.training.accepted_cycles ?? 0}/${operations?.training.threshold ?? 0} current threshold`} />
+    </section>
+    <div className="operations-grid">
+      <section className="panel"><PanelHeader icon={ServerCog} overline="PROCESS SEPARATION" title="Control and worker planes" /><div className="component-list">
+        <ComponentRow name="FastAPI control plane" status={operations?.control_plane.api.status ?? "unknown"} detail={operations?.control_plane.api.detail ?? "No observation"} />
+        <ComponentRow name="Inngest orchestrator" status={operations?.control_plane.orchestrator.status ?? "unknown"} detail={`queue ${operations?.control_plane.orchestrator.queue_depth ?? "unknown"} · ${operations?.control_plane.orchestrator.detail ?? "No observation"}`} />
+        <ComponentRow name="Registry" status={operations?.control_plane.registry.status ?? "unknown"} detail={`${operations?.control_plane.registry.backend ?? "unknown"} · ${operations?.control_plane.registry.detail ?? "No observation"}`} />
+        <ComponentRow name="Headless workers" status={workers?.status ?? "unknown"} detail={`${workers?.observed ?? "?"} responsive of ${workers?.configured ?? "?"} configured`} action={<button onClick={() => void probe()} disabled={acting}>{acting ? "Probing" : "Probe"}</button>} />
+      </div></section>
+      <section className="panel"><PanelHeader icon={Database} overline="STRUCTURED DATA" title="Registry inventory" /><div className="inventory-grid">
+        <Inventory label="Families" value={counts?.families ?? 0} /><Inventory label="Strategies" value={counts?.strategies ?? 0} /><Inventory label="Cycles" value={counts?.cycles ?? 0} /><Inventory label="Accepted" value={counts?.accepted_cycles ?? 0} /><Inventory label="Variants" value={counts?.pending_variants ?? 0} /><Inventory label="Corpora" value={counts?.training_corpora ?? 0} />
+      </div></section>
+      <section className="panel storage-panel"><PanelHeader icon={HardDrive} overline="HOST-BACKED DATA" title="Physical storage" /><div className="storage-list">{Object.entries(operations?.storage.stores ?? {}).map(([name, item]) => <div key={name}><span>{name}</span><b>{item.files} files</b><small>{formatBytes(item.bytes)}</small></div>)}</div><div className="storage-foot"><span>Object backend <b>{operations?.storage.object_backend ?? "unknown"}</b></span><span>Versioning <b>{operations?.storage.object_versioning ? "enabled" : "not configured"}</b></span></div></section>
+      <section className="panel"><PanelHeader icon={ShieldCheck} overline="MODEL GOVERNANCE" title={operations?.model.runtime_detector_id ?? operations?.model.detector_id ?? "No model"} /><div className="component-list"><ComponentRow name="Serving state" status={operations?.model.runtime_verified ? "healthy" : "degraded"} detail={operations?.model.runtime_verified ? `Runtime verified ${operations.model.runtime_detector_id}` : `Runtime fallback ${operations?.model.runtime_detector_id ?? "unknown"}`} /><ComponentRow name="Latest challenger" status={operations?.model.latest_evaluation?.installed ? "healthy" : operations?.model.latest_evaluation ? "degraded" : "unknown"} detail={operations?.model.latest_evaluation ? `${operations.model.latest_evaluation.candidate_id} · ${operations.model.latest_evaluation.installed ? "promoted" : "retained"} · ${operations.model.latest_evaluation.evaluation_protocol}` : "No persisted evaluation receipt"} /><ComponentRow name="Backup posture" status={operations?.backups.status ?? "unknown"} detail={operations?.backups.detail ?? "No backup evidence"} /></div></section>
+    </div>
+    <section className="panel variant-panel"><PanelHeader icon={GitBranch} overline="RESIDUAL QUEUE" title="Bounded family proposals" />{operations?.pending_variants.length ? operations.pending_variants.map((variant) => <div className="variant-row" key={variant.proposal_id}><div><StatusPill status={variant.status} /><strong>{variant.candidate_family_slug.replaceAll("_", " ")}</strong><p>From {variant.parent_family_slug.replaceAll("_", " ")} · source {variant.source_cycle_id}</p></div><div>{variant.changes.map((change) => <code key={change.field}>{change.field}: {String(change.previous_value)} → {String(change.proposed_value)}</code>)}</div><b>NON-EXECUTABLE</b></div>) : <EmptyState title="No residual proposals" copy="Run a partial or blind APP scenario to populate this review queue." />}</section>
+  </>;
+}
+
+function ComponentRow({ name, status, detail, action }: { name: string; status: string; detail: string; action?: ReactNode }) {
+  return <div className="component-row"><span className={`health-dot health-${status}`} /><div><strong>{name}</strong><small>{detail}</small></div><StatusPill status={status} />{action}</div>;
+}
+
+function Inventory({ label, value }: { label: string; value: number }) { return <div><span>{label}</span><b>{value}</b></div>; }
+function formatBytes(bytes: number) { return bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${(bytes / 1024).toFixed(1)} KiB` : `${(bytes / 1024 ** 2).toFixed(1)} MiB`; }
 
 function Metric({ label, value, suffix = "", note, alert }: { label: string; value: number; suffix?: string; note: string; alert?: boolean }) {
   return <div className={`metric ${alert ? "metric-alert" : ""}`}><span>{label}</span><div><NumberFlow value={value} format={{ maximumFractionDigits: 1 }} /><em>{suffix}</em></div><small>{note}</small></div>;

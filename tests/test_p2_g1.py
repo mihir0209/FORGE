@@ -16,10 +16,12 @@ from forge.contracts.contracts import (
 )
 from forge.cycle_runner import run_offline_cycle
 from forge.detect import RuleBaselineDetector, gate_score, trace_features
+from forge.families import FamilyRegistry, define_family
 from forge.kb import InMemoryRegistry, SQLiteRegistry, f3_matrix, fraud_skills, search
 from forge.redteam import compose_draft, novelty, validate
 from forge.redteam.fixtures import default_draft
 from forge.simulate import build_legit_trace, simulate
+from forge.storage import load_artifact
 
 # ------------------------------------------------------------------ knowledge
 
@@ -73,6 +75,43 @@ def test_registry_adapters_parity(tmp_path: Path) -> None:
         assert [x.strategy_id for x in twins] == ["s_a"]
         assert reg.same_family_count("refund_abuse") == 1
         assert reg.strategy_count() == 1
+        assert reg.strategies() == [s]
+
+
+def test_registry_persists_immutable_family_definitions(tmp_path: Path) -> None:
+    source = FamilyRegistry().get("deepfake_executive_bec")
+    payload = source.model_dump(exclude={"definition_sha256"})
+    payload.update(slug="database_family", version="1.0.0")
+    family = define_family(**payload)
+
+    for reg in (InMemoryRegistry(), SQLiteRegistry(tmp_path / "families.sqlite")):
+        reg.record_family(family)
+        assert reg.families() == [family]
+
+        conflicting_payload = family.model_dump(exclude={"definition_sha256"})
+        conflicting_payload["title"] = "Conflicting family"
+        with pytest.raises(ValueError, match="immutable"):
+            reg.record_family(define_family(**conflicting_payload))
+
+
+def test_training_corpus_claim_is_idempotent(tmp_path: Path) -> None:
+    for reg in (InMemoryRegistry(), SQLiteRegistry(tmp_path / "corpus.sqlite")):
+        assert reg.claim_training_corpus("a" * 64, 10)
+        assert not reg.claim_training_corpus("a" * 64, 10)
+        assert reg.claim_training_corpus("b" * 64, 11)
+        assert {digest for digest, _ in reg.training_corpora()} == {"a" * 64, "b" * 64}
+
+
+def test_sqlite_registry_can_be_opened_without_mutating_source(tmp_path: Path) -> None:
+    path = tmp_path / "readonly.sqlite"
+    writable = SQLiteRegistry(path)
+    spec = _spec()
+    writable.record_strategy(spec)
+    readonly = SQLiteRegistry(path, readonly=True)
+
+    assert readonly.strategies() == [spec]
+    with pytest.raises(ValueError, match="read-only"):
+        readonly.record_strategy(_spec("b"))
 
 
 # ------------------------------------------------------------------ red team
@@ -121,7 +160,10 @@ def test_golden_offline_cycle(tmp_path: Path, reg_kind: str) -> None:
 
     assert record.strategy.attack_family == "refund_abuse"
     assert record.accepted is True
-    assert record.trace_ref.startswith("tr_")
+    assert record.trace_ref.startswith("traces/tr_")
+    assert load_artifact(record.trace_ref)["trace_id"] == record.trace_ref.removeprefix(
+        "traces/"
+    ).removesuffix(".json")
 
     # evidence integrity: blue signals cite events that exist in the world
     world = simulate(record.strategy, WorldSeed(master_seed=42)).trace.observed_view()
