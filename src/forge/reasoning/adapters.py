@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 import os
 import time
+from asyncio import get_running_loop
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -74,7 +76,15 @@ class PydanticAIClient:
             retries=_RETRIES,
         )
         try:
-            result = agent.run_sync(user)
+            try:
+                get_running_loop()
+            except RuntimeError:
+                result = agent.run_sync(user)
+            else:
+                # Inngest executes sync stage callbacks on its asyncio thread.
+                # Pydantic AI's sync facade needs a thread without a running loop.
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    result = executor.submit(agent.run_sync, user).result()
         except (ValidationError, CoreValidationError) as exc:
             self._record(call_id, started_at, started, schema, "schema_violation", type(exc).__name__)
             raise SchemaViolation(f"{schema.__name__}: {exc}") from exc
