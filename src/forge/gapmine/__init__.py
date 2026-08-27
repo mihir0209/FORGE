@@ -19,7 +19,7 @@ from forge.contracts.contracts import (
 from forge.kb import Registry, f3_matrix
 
 
-def rank(registry: Registry, limit: int = 3) -> list[GapBrief]:
+def rank(registry: Registry, limit: int = 8) -> list[GapBrief]:
     """Coverage deficits first; deterministic ordering by (deficit desc, slug)."""
     matrix = f3_matrix()
     cycles = registry.cycles()
