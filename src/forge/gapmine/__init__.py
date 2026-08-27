@@ -51,10 +51,14 @@ def rank(registry: Registry, limit: int = 3) -> list[GapBrief]:
                 f"({tac.slug}); compose the first strategy family."
             )
         elif any(stats[key] > 0 for key in ("blind", "partial", "blue", "gaps")):
-            _deficit = (
+            residual_weight = (
                 stats["blind"] + 0.7 * stats["partial"] + stats["blue"] + 0.2 * stats["gaps"]
+            ) / stats["strategies"]
+            # Residual severity matters, but sparse tactics should be researched
+            # before heavily sampled families accumulate still more variants.
+            priority = min(0.94, 0.65 + 0.08 * residual_weight) + min(
+                0.04, 0.04 / stats["strategies"]
             )
-            priority = min(0.99, 0.7 + 0.03 * _deficit)
             objective = (
                 f"Residuals under '{tac.name}': blind={stats['blind']}, "
                 f"partial={stats['partial']}, blue={stats['blue']}, gaps={stats['gaps']}; "
@@ -97,9 +101,7 @@ def propose_variant(
     if cycle.strategy.family_definition_sha256 != parent.definition_sha256:
         raise ValueError("source strategy does not match parent family definition")
 
-    strong = bool(
-        {ResidualKind.GATE_BLIND_SPOT, ResidualKind.BLUE_MISSED} & set(kinds)
-    )
+    strong = bool({ResidualKind.GATE_BLIND_SPOT, ResidualKind.BLUE_MISSED} & set(kinds))
     defaults = dict(parent.scenario_defaults)
     changes: list[VariantChange] = []
 

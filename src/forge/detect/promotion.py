@@ -35,16 +35,20 @@ def _control_fp_rate(candidate: CandidateReport, n_controls: int = 20) -> float:
 
     for i in range(n_controls):
         views = [build_legit_trace(WorldSeed(master_seed=20_000 + i)).observed_view()]
-        app_trace = ActorSandbox(LocalArtifactStore(Path("data/control-artifacts"))).execute(
-            legitimate_app_payment_plan(
-                "promotion-control",
-                f"promotion-control-{i}",
-                active_call=i % 2 == 0,
-                first_time_payee=i % 3 == 0,
-            ),
-            WorldSeed(master_seed=40_000 + i),
-            cycle_id=f"promotion-control-{i}",
-        ).trace
+        app_trace = (
+            ActorSandbox(LocalArtifactStore(Path("data/control-artifacts")))
+            .execute(
+                legitimate_app_payment_plan(
+                    "promotion-control",
+                    f"promotion-control-{i}",
+                    active_call=i % 2 == 0,
+                    first_time_payee=i % 3 == 0,
+                ),
+                WorldSeed(master_seed=40_000 + i),
+                cycle_id=f"promotion-control-{i}",
+            )
+            .trace
+        )
         views.append(app_trace.observed_view())
         for view in views:
             vec = [[float(trace_features(view).get(k, 0.0)) for k in FEATURE_NAMES]]
@@ -169,7 +173,7 @@ def evaluate(report: CandidateReport, registry: Registry) -> PromotionVerdict:
     incumbent = load_incumbent()
     inc_auc = _incumbent_auc_on_dataset(report.dataset, incumbent)
     checks["incumbent_evaluation_succeeded"] = not np.isnan(inc_auc)
-    checks["beats_incumbent"] = not np.isnan(inc_auc) and report.roc_auc + 0.10 >= inc_auc
+    checks["beats_incumbent"] = not np.isnan(inc_auc) and report.roc_auc >= inc_auc
 
     passed = all(checks.values())
     notes: list[str] = []

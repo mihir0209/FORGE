@@ -14,6 +14,7 @@ from forge.artifacts import LocalArtifactStore
 from forge.contracts.contracts import RunState, RunSupervisorConfig
 from forge.cycle_runner import run_offline_cycle
 from forge.data_quality import audit_registry
+from forge.gapmine import rank
 from forge.kb import InMemoryRegistry
 from forge.operations import campaign
 from forge.operations.supervisor import RunSupervisor
@@ -75,6 +76,19 @@ def test_campaign_tick_distributes_behavioral_research_across_ranked_gaps(
     assert len(behavioral) == 5
     assert len({request["brief_id"] for request in behavioral}) == 5
     assert len({request["seed"] for request in behavioral}) == 5
+
+
+def test_gap_ranking_does_not_reward_historical_volume(
+    tmp_path: Path,
+) -> None:
+    registry = InMemoryRegistry()
+    for seed in range(20):
+        run_offline_cycle(seed, registry, draft=default_draft())
+
+    briefs = rank(registry, limit=8)
+
+    priorities = {brief.brief_id: brief.priority for brief in briefs}
+    assert priorities["gap_initial-access"] > priorities["gap_monetization"]
 
 
 def test_completed_cycle_key_is_not_readmitted(tmp_path: Path) -> None:

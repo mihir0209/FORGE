@@ -91,7 +91,9 @@ def test_legitimate_call_control_does_not_trigger_app_risk(tmp_path: Path) -> No
     assert trace_features(result.trace.observed_view())["active_external_call"] == 0.35
 
 
-def test_family_holdout_manifest_is_deterministic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_family_holdout_manifest_is_deterministic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from forge.cycle_runner import run_offline_cycle
     from forge.detect import dataset as dataset_module
     from forge.detect.dataset import build_family_holdout_dataset
@@ -150,6 +152,34 @@ def test_family_holdout_manifest_is_deterministic(tmp_path: Path, monkeypatch: p
         DetectionTrack.AI_ASSISTED_APP.value,
         DetectionTrack.BEHAVIORAL_PAYMENT.value,
     }
+
+
+def test_family_holdout_prefers_families_with_promotion_sized_samples(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from forge.detect import dataset as dataset_module
+    from forge.detect.dataset import build_family_holdout_dataset
+
+    monkeypatch.setattr(dataset_module, "DATASETS_ROOT", tmp_path / "datasets")
+    registry = SQLiteRegistry(tmp_path / "registry.sqlite")
+    store = LocalArtifactStore(tmp_path / "objects")
+    variants = ("safe_account", "family_emergency", "investment_coaching")
+    for index, variant in enumerate(variants):
+        repeats = 20 if variant != "investment_coaching" else 2
+        for repeat in range(repeats):
+            run_app_scam_cycle(
+                seed=1000 + index * 100 + repeat,
+                cycle_id=f"cycle-{variant}-{repeat}",
+                registry=registry,
+                store=store,
+                variant=variant,
+            )
+
+    ref = build_family_holdout_dataset(registry, n_negatives_per_split=4)
+
+    assert set(ref.held_out_families) == {"ai_bank_impersonation", "ai_family_emergency"}
+    assert ref.split_positive_counts["calib"] == 20
+    assert ref.split_positive_counts["test"] == 20
 
 
 def test_internal_preparation_remains_hidden_for_every_variant(tmp_path: Path) -> None:

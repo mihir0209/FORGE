@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from forge.kb import Registry
 
 DATASETS_ROOT = Path("data/datasets")
+MIN_HOLDOUT_POSITIVES = 20
 
 
 def _cycle_features(cycle: CycleRecord) -> dict[str, float] | None:
@@ -63,7 +64,9 @@ def build_dataset(
             rows.append({**{k: float(v) for k, v in feats.items()}, "label": 1})
 
     if not rows:
-        raise ValueError("no current-schema attack cycles in registry — run forge app-scam-cycle first")
+        raise ValueError(
+            "no current-schema attack cycles in registry — run forge app-scam-cycle first"
+        )
 
     # negatives — balanced-ish
     base = 10_000 + dataset_seed * 1_000
@@ -131,9 +134,20 @@ def build_family_holdout_dataset(
     holdout_eligible = sorted(family for family, count in family_counts.items() if count >= 2)
     if calibration_family is None or test_family is None:
         if len(holdout_eligible) < 2:
-            raise ValueError("family holdout requires two families with at least two positive cycles")
-        calibration_family = calibration_family or holdout_eligible[-2]
-        test_family = test_family or holdout_eligible[-1]
+            raise ValueError(
+                "family holdout requires two families with at least two positive cycles"
+            )
+        sufficiently_sampled = sorted(
+            (
+                family
+                for family in holdout_eligible
+                if family_counts[family] >= MIN_HOLDOUT_POSITIVES
+            ),
+            key=lambda family: (-family_counts[family], family),
+        )
+        candidates = sufficiently_sampled if len(sufficiently_sampled) >= 2 else holdout_eligible
+        calibration_family = calibration_family or candidates[0]
+        test_family = test_family or candidates[1]
     if calibration_family == test_family:
         raise ValueError("calibration and test families must differ")
     if calibration_family not in families or test_family not in families:
@@ -144,7 +158,13 @@ def build_family_holdout_dataset(
 
     for cycle in cycles:
         family = cycle.strategy.attack_family
-        split = "test" if family == test_family else "calib" if family == calibration_family else "train"
+        split = (
+            "test"
+            if family == test_family
+            else "calib"
+            if family == calibration_family
+            else "train"
+        )
         features = _cycle_features(cycle)
         assert features is not None
         row: dict[str, object] = {**features, "label": 1}
@@ -250,8 +270,7 @@ def build_family_holdout_dataset(
         manifest_path=str(manifest_path),
         held_out_families=held_out,
         split_positive_counts={
-            split: sum(int(row["label"]) for row in rows)
-            for split, rows in partitions.items()
+            split: sum(int(row["label"]) for row in rows) for split, rows in partitions.items()
         },
         included_tracks=sorted(
             {cycle.detection_track for cycle in cycles}, key=lambda track: track.value
