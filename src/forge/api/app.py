@@ -83,6 +83,12 @@ def create_app() -> FastAPI:
     def get_operations() -> dict[str, object]:
         return read_models.operations()
 
+    @app.get("/api/llm-telemetry")
+    def get_llm_telemetry(
+        limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0)
+    ) -> dict[str, object]:
+        return read_models.llm_telemetry(limit=limit, offset=offset)
+
     @app.get("/api/variants")
     def get_variants() -> list[dict[str, object]]:
         return read_models.variants()

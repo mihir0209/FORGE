@@ -17,14 +17,23 @@ def live_enabled() -> bool:
     return os.environ.get("FORGE_LIVE_LLM", "").lower() in {"1", "true", "yes"}
 
 
-def default_client() -> ReasoningClient | None:
+def default_client(*, team: str = "unknown", stage: str = "complete") -> ReasoningClient | None:
     load_env_file()
     if not live_enabled():
         return None
     if not os.environ.get("OPENAI_API_KEY"):
         return None
+    from forge.kb import registry_from_env
+
+    telemetry = registry_from_env()
     model = os.environ.get("FORGE_LLM_MODEL", "mimo-v2.5")
-    clients: list[PydanticAIClient] = [PydanticAIClient(f"openai:{model}")]
+    clients: list[PydanticAIClient] = [
+        PydanticAIClient(f"openai:{model}", telemetry=telemetry, team=team, stage=stage)
+    ]
     if os.environ.get("ANTHROPIC_API_KEY"):
-        clients.append(PydanticAIClient("anthropic:claude-haiku-4-5"))
+        clients.append(
+            PydanticAIClient(
+                "anthropic:claude-haiku-4-5", telemetry=telemetry, team=team, stage=stage
+            )
+        )
     return ChainedReasoningClient(*clients)  # type: ignore[arg-type]

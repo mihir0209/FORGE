@@ -48,15 +48,16 @@ from forge.feature_schema import FEATURE_SCHEMA_VERSION
 from forge.gapmine import fallback_brief, propose_variant, rank
 from forge.ids import cycle_id_base, strategy_id_for
 from forge.kb import Registry, registry_from_env, search
-from forge.redteam import compose_draft, novelty
+from forge.reasoning import ReasoningError
+from forge.redteam import compose, compose_draft, novelty
 from forge.redteam.fixtures import draft_for_tactic
 from forge.simulate import simulate
 
 
-def _live_reasoning() -> ReasoningClient | None:
+def _live_reasoning(*, team: str = "blue", stage: str = "investigate") -> ReasoningClient | None:
     from forge.reasoning.live import default_client
 
-    return default_client()
+    return default_client(team=team, stage=stage)
 
 
 def _registry() -> Registry:
@@ -154,9 +155,28 @@ def stage_compose(data: dict[str, Any]) -> dict[str, object] | None:
 
     brief = _pick_brief(reg, ev.brief_id)
     slug = brief.suggested_family.removesuffix("_family")
-    search(KBQuery(tactic=slug, technique_ids=brief.target_f3_cells, limit=8))
-
-    spec = compose_draft(draft_for_tactic(slug), strategy_id=strategy_id_for(ev.seed))
+    hits = search(KBQuery(tactic=slug, technique_ids=brief.target_f3_cells, limit=8))
+    reasoning = _live_reasoning(team="red", stage="compose")
+    try:
+        spec = (
+            compose(
+                brief,
+                hits,
+                reasoning,
+                strategy_id=strategy_id_for(ev.seed),
+                provider=reasoning.name.split(":", 1)[0],
+                model=reasoning.name,
+            )
+            if reasoning is not None
+            else compose_draft(draft_for_tactic(slug), strategy_id=strategy_id_for(ev.seed))
+        )
+    except ReasoningError:
+        spec = compose_draft(
+            draft_for_tactic(slug),
+            strategy_id=strategy_id_for(ev.seed),
+            provider="deterministic_fallback",
+            model="fixture",
+        )
     verdict = novelty(spec, reg)
 
     if not verdict.novel:
@@ -192,6 +212,8 @@ def stage_app_scam_cycle(data: dict[str, Any]) -> dict[str, object]:
         registry=_registry(),
         store=artifact_store_from_env(),
         variant=str(data.get("family_slug") or data.get("variant", "safe_account")),
+        family_version=str(data.get("family_version", "1.0.0")),
+        blue_reasoning=_live_reasoning(team="blue", stage="investigate"),
     )
     supervisor = supervisor_from_env()
     if supervisor is not None:
@@ -228,7 +250,7 @@ def stage_investigate(data: dict[str, Any]) -> dict[str, object]:
     trace = SyntheticTrace.model_validate(load_artifact(ev.trace_ref))
     report = investigate(
         trace.observed_view(),
-        reasoning=_live_reasoning(),  # None offline -> deterministic heuristics
+        reasoning=_live_reasoning(team="blue", stage="investigate"),
     )
     ref = save_report(ev.strategy_id, json.loads(report.model_dump_json()))
     return ev_dict(

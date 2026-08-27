@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from forge.contracts.contracts import StrategySpec
+from forge.contracts.contracts import LLMCall, StrategySpec
 from forge.kb import SQLiteRegistry
 from forge.operations import bootstrap
 from forge.redteam import compose_draft
@@ -17,6 +17,7 @@ class _Target:
         self.cycles: set[str] = set()
         self.families: set[tuple[str, str]] = set()
         self.proposals: set[str] = set()
+        self.llm_calls: set[str] = set()
 
     def record_strategy(self, strategy: StrategySpec) -> None:
         self.strategies[strategy.fingerprint()] = strategy
@@ -34,6 +35,9 @@ class _Target:
     def claim_training_corpus(self, corpus_sha256: str, cycle_count: int) -> bool:
         del corpus_sha256, cycle_count
         return True
+
+    def record_llm_call(self, call: LLMCall) -> None:
+        self.llm_calls.add(call.call_id)
 
 
 def test_bootstrap_imports_wal_visible_sqlite_without_modifying_source(
@@ -67,6 +71,7 @@ def test_bootstrap_imports_wal_visible_sqlite_without_modifying_source(
         "cycles": 0,
         "proposals": 0,
         "training_corpora": 0,
+        "llm_calls": 0,
     }
     assert len(target.strategies) == 1
     assert source_path.read_bytes() == before

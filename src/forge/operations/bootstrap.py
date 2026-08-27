@@ -26,6 +26,7 @@ def bootstrap_database(
         "cycles": 0,
         "proposals": 0,
         "training_corpora": 0,
+        "llm_calls": 0,
     }
 
     if source_path.exists():
@@ -54,6 +55,9 @@ def bootstrap_database(
             for digest, cycle_count in source.training_corpora():
                 target.claim_training_corpus(digest, cycle_count)
                 counts["training_corpora"] += 1
+            for call in source.llm_calls():
+                target.record_llm_call(call)
+                counts["llm_calls"] += 1
 
     if families_root.exists():
         catalog = FamilyRegistry(families_root, require_approval=True)

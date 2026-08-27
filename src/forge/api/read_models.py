@@ -358,6 +358,7 @@ def operations() -> dict[str, Any]:
     observed_at = datetime.now(UTC)
     reg = registry()
     records = reg.cycles()
+    llm = llm_telemetry(limit=20)
     proposals = variants()
     data_root = Path(os.environ.get("FORGE_DATA_DIR", "data"))
     orchestrator = _inngest_status()
@@ -405,9 +406,11 @@ def operations() -> dict[str, Any]:
             "accepted_cycles": sum(cycle.accepted for cycle in records),
             "pending_variants": sum(item["status"] == "pending" for item in proposals),
             "training_corpora": len(reg.training_corpora()),
+            "llm_calls": llm["summary"]["calls"],
         },
         "storage": storage,
         "model": model,
+        "llm": llm["summary"],
         "backups": {
             "status": "degraded" if backup_receipt else "not_configured",
             "detail": (
@@ -429,6 +432,31 @@ def operations() -> dict[str, Any]:
                 for claim_id, count in reg.training_corpora()
             ],
         },
+    }
+
+
+def llm_telemetry(*, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    reg = registry()
+    all_calls = reg.llm_calls()
+    calls = reg.llm_calls(limit=limit, offset=offset)
+    durations = sorted(call.duration_ms for call in all_calls)
+    successful = sum(call.status == "success" for call in all_calls)
+    p95_index = max(0, min(len(durations) - 1, int(0.95 * len(durations)))) if durations else 0
+    summary = {
+        "calls": len(all_calls),
+        "successful": successful,
+        "failed": len(all_calls) - successful,
+        "input_tokens": sum(call.input_tokens or 0 for call in all_calls),
+        "output_tokens": sum(call.output_tokens or 0 for call in all_calls),
+        "average_latency_ms": sum(durations) / len(durations) if durations else 0.0,
+        "p95_latency_ms": durations[p95_index] if durations else 0.0,
+        "latest": all_calls[0].model_dump(mode="json") if all_calls else None,
+    }
+    return {
+        "summary": summary,
+        "limit": limit,
+        "offset": offset,
+        "items": [call.model_dump(mode="json") for call in calls],
     }
 
 

@@ -16,7 +16,7 @@ trap restart_runtime EXIT INT TERM
 
 # Establish one cross-store boundary: no pipeline writer remains active while
 # PostgreSQL, Redis, MinIO and host artifacts are captured.
-docker compose --env-file "$env_file" -f "$compose_file" stop -t 600 api worker inngest
+docker compose --env-file "$env_file" -f "$compose_file" stop -t "${FORGE_BACKUP_STOP_TIMEOUT:-30}" api worker inngest
 
 docker compose --env-file "$env_file" -f "$compose_file" exec -T postgres \
   pg_dump -U postgres --format=custom --no-owner --no-acl forge > "$destination/forge.dump"

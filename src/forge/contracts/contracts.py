@@ -173,6 +173,29 @@ class Provenance(Strict):
     worker_id: str | None = None
 
 
+class LLMCall(Strict):
+    """Content-free operational receipt for one provider attempt."""
+
+    call_id: str
+    started_at: datetime = Field(default_factory=_now)
+    duration_ms: float = Field(ge=0.0)
+    team: str
+    stage: str
+    provider: str
+    model: str
+    schema_name: str
+    status: str
+    requests: int | None = Field(default=None, ge=0)
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    cache_read_tokens: int | None = Field(default=None, ge=0)
+    cache_write_tokens: int | None = Field(default=None, ge=0)
+    tool_calls: int | None = Field(default=None, ge=0)
+    run_id: str | None = None
+    cycle_id: str | None = None
+    error_type: str | None = None
+
+
 class StrategySpec(Strict):
     """Red team's validated attack hypothesis."""
 

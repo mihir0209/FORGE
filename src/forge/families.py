@@ -258,6 +258,7 @@ def build_app_plan(
     seed: int = 0,
     *,
     purpose: str = "attack",
+    strategy_id: str | None = None,
 ) -> ActionPlan:
     p = dict(family.scenario_defaults)
     digest = hashlib.sha256(f"{seed}:{family.definition_sha256}".encode()).digest()
@@ -320,7 +321,7 @@ def build_app_plan(
     ]
     if not {a.tool for a in actions} <= set(family.allowed_tools):
         raise ValueError("plan exceeds family tool policy")
-    return ActionPlan(plan_id=f"plan-{cycle_id}", strategy_id=f"strategy-{family.slug}-{cycle_id}", actor_id="simulated-customer-1", actions=actions)
+    return ActionPlan(plan_id=f"plan-{cycle_id}", strategy_id=strategy_id or f"strategy-{family.slug}-{cycle_id}", actor_id="simulated-customer-1", actions=actions)
 
 
 def _workflow_actions(template: str) -> list[ToolAction]:

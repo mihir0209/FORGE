@@ -12,6 +12,7 @@ from forge.contracts.contracts import (
     CycleRecord,
     FamilyVariantProposal,
     FraudFamilyDefinition,
+    LLMCall,
     StrategySpec,
 )
 
@@ -33,6 +34,8 @@ class Registry:
     def variant_proposals(self) -> list[FamilyVariantProposal]: ...
     def claim_training_corpus(self, corpus_sha256: str, cycle_count: int) -> bool: ...
     def training_corpora(self) -> list[tuple[str, int]]: ...
+    def record_llm_call(self, call: LLMCall) -> None: ...
+    def llm_calls(self, *, limit: int | None = None, offset: int = 0) -> list[LLMCall]: ...
     def strategy_count(self) -> int: ...
 
 
@@ -43,6 +46,7 @@ class InMemoryRegistry(Registry):
         self._cycles: list[CycleRecord] = []
         self._proposals: dict[str, FamilyVariantProposal] = {}
         self._training_corpora: set[str] = set()
+        self._llm_calls: dict[str, LLMCall] = {}
 
     def record_strategy(self, spec: StrategySpec) -> None:
         self._specs[spec.strategy_id] = spec
@@ -104,6 +108,16 @@ class InMemoryRegistry(Registry):
     def training_corpora(self) -> list[tuple[str, int]]:
         return sorted((digest, 0) for digest in self._training_corpora)
 
+    def record_llm_call(self, call: LLMCall) -> None:
+        current = self._llm_calls.get(call.call_id)
+        if current and current != call:
+            raise ValueError("LLM call receipt is immutable")
+        self._llm_calls[call.call_id] = call
+
+    def llm_calls(self, *, limit: int | None = None, offset: int = 0) -> list[LLMCall]:
+        calls = sorted(self._llm_calls.values(), key=lambda call: call.started_at, reverse=True)
+        return calls[offset:] if limit is None else calls[offset : offset + limit]
+
     def strategy_count(self) -> int:
         return len(self._specs)
 
@@ -142,6 +156,17 @@ CREATE TABLE IF NOT EXISTS training_corpora (
   corpus_sha256 TEXT PRIMARY KEY,
   cycle_count INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS llm_calls (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  call_id TEXT NOT NULL UNIQUE,
+  started_at TEXT NOT NULL,
+  status TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_llm_calls_started_at ON llm_calls(started_at);
 """
 
 
@@ -293,6 +318,24 @@ class SQLiteRegistry(Registry):
         ).fetchall()
         return [(str(digest), int(count)) for digest, count in rows]
 
+    def record_llm_call(self, call: LLMCall) -> None:
+        self._require_writable()
+        row = self._conn.execute("SELECT json FROM llm_calls WHERE call_id=?", (call.call_id,)).fetchone()
+        if row:
+            if LLMCall.model_validate_json(row[0]) != call:
+                raise ValueError("LLM call receipt is immutable")
+            return
+        self._conn.execute(
+            "INSERT INTO llm_calls(call_id,started_at,status,provider,model,stage,json) VALUES (?,?,?,?,?,?,?)",
+            (call.call_id, call.started_at.isoformat(), call.status, call.provider, call.model, call.stage, call.model_dump_json()),
+        )
+        self._conn.commit()
+
+    def llm_calls(self, *, limit: int | None = None, offset: int = 0) -> list[LLMCall]:
+        sql = "SELECT json FROM llm_calls ORDER BY sequence DESC LIMIT ? OFFSET ?"
+        rows = self._conn.execute(sql, (-1 if limit is None else limit, offset)).fetchall()
+        return [LLMCall.model_validate_json(row[0]) for row in rows]
+
     def strategy_count(self) -> int:
         (n,) = self._conn.execute("SELECT COUNT(*) FROM specs").fetchone()
         return int(n)
@@ -345,6 +388,18 @@ class PostgresRegistry(Registry):
                   corpus_sha256 TEXT PRIMARY KEY,
                   cycle_count INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS forge_llm_calls (
+                  sequence BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                  call_id TEXT NOT NULL UNIQUE,
+                  started_at TIMESTAMPTZ NOT NULL,
+                  status TEXT NOT NULL,
+                  provider TEXT NOT NULL,
+                  model TEXT NOT NULL,
+                  stage TEXT NOT NULL,
+                  payload JSONB NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_forge_llm_calls_started_at
+                  ON forge_llm_calls(started_at);
                 """
             )
 
@@ -521,6 +576,31 @@ class PostgresRegistry(Registry):
                 "SELECT corpus_sha256, cycle_count FROM forge_training_corpora ORDER BY corpus_sha256"
             )
             return [(str(digest), int(count)) for digest, count in cur.fetchall()]
+
+    def record_llm_call(self, call: LLMCall) -> None:
+        from psycopg.types.json import Jsonb
+
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT payload FROM forge_llm_calls WHERE call_id=%s", (call.call_id,))
+            row = cur.fetchone()
+            if row:
+                if LLMCall.model_validate(row[0]) != call:
+                    raise ValueError("LLM call receipt is immutable")
+                return
+            cur.execute(
+                """INSERT INTO forge_llm_calls(
+                     call_id,started_at,status,provider,model,stage,payload
+                   ) VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                (call.call_id, call.started_at, call.status, call.provider, call.model, call.stage, Jsonb(call.model_dump(mode="json"))),
+            )
+
+    def llm_calls(self, *, limit: int | None = None, offset: int = 0) -> list[LLMCall]:
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT payload FROM forge_llm_calls ORDER BY sequence DESC LIMIT %s OFFSET %s",
+                (limit, offset),
+            )
+            return [LLMCall.model_validate(row[0]) for row in cur.fetchall()]
 
     def strategy_count(self) -> int:
         with self._conn.cursor() as cur:

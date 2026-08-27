@@ -183,6 +183,7 @@ export interface Operations {
     accepted_cycles: number;
     pending_variants: number;
     training_corpora: number;
+    llm_calls: number;
   };
   storage: {
     status: OperationalStatus;
@@ -193,6 +194,16 @@ export interface Operations {
     object_detail: string;
   };
   model: ModelCard;
+  llm: {
+    calls: number;
+    successful: number;
+    failed: number;
+    input_tokens: number;
+    output_tokens: number;
+    average_latency_ms: number;
+    p95_latency_ms: number;
+    latest: { provider: string; model: string; team: string; stage: string; status: string } | null;
+  };
   backups: {
     status: OperationalStatus;
     detail: string;

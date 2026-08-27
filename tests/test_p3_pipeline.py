@@ -156,6 +156,39 @@ def test_app_cycle_automatically_persists_pending_variant(
     assert proposals[0].candidate_family.slug == proposed["candidate_family_slug"]
 
 
+def test_app_cycle_uses_live_blue_reasoning_and_consistent_strategy_id(
+    isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from forge.artifacts import LocalArtifactStore
+    from forge.contracts.contracts import BlueAssessment, Verdict
+    from forge.reasoning import ScriptedReasoningClient
+
+    reasoning = ScriptedReasoningClient()
+    reasoning.queue(BlueAssessment(verdict=Verdict.PARTIAL, confidence=0.61))
+    monkeypatch.setattr(
+        "forge.artifacts.artifact_store_from_env",
+        lambda: LocalArtifactStore(isolated_env.parent / "objects"),
+    )
+    def live_reasoning(**_: str) -> ScriptedReasoningClient:
+        return reasoning
+
+    monkeypatch.setattr("forge.pipeline.stages._live_reasoning", live_reasoning)
+
+    stages.stage_app_scam_cycle(
+        EvCycleRequested(
+            seed=173,
+            family_slug="ai_bank_impersonation",
+            scenario="ai_assisted_app_scam",
+        ).model_dump()
+    )
+    cycle = registry_from_env().cycles()[0]
+    trace = SyntheticTrace.model_validate(load_artifact(cycle.trace_ref))
+
+    assert cycle.blue_report.verdict == Verdict.PARTIAL
+    assert reasoning.calls[0][0] == "BlueAssessment"
+    assert trace.ground_truth.strategy_id == cycle.strategy.strategy_id
+
+
 def test_training_corpus_requires_family_disjoint_support(
     isolated_env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

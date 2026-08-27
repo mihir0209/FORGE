@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from forge.artifacts import ArtifactStore
     from forge.contracts.contracts import FraudFamilyDefinition
     from forge.kb import Registry
+    from forge.reasoning import ReasoningClient
 
 
 _VARIANTS = {"safe_account": "ai_bank_impersonation", "family_emergency": "ai_family_emergency", "investment_coaching": "ai_investment_coaching"}
@@ -85,16 +86,19 @@ def run_app_scam_cycle(
     store: ArtifactStore,
     variant: str = "safe_account",
     family_version: str = "1.0.0",
+    blue_reasoning: ReasoningClient | None = None,
 ) -> CycleRecord:
     slug = _VARIANTS.get(variant, variant)
     family = family_registry_from_env().get(slug, family_version)
     strategy = app_scam_strategy(seed, family=family)
     sandbox_result = ActorSandbox(store).execute(
-        build_app_plan(family, cycle_id, seed), WorldSeed(master_seed=seed), cycle_id=cycle_id
+        build_app_plan(family, cycle_id, seed, strategy_id=strategy.strategy_id),
+        WorldSeed(master_seed=seed),
+        cycle_id=cycle_id,
     )
     trace = sandbox_result.trace
     observed = trace.observed_view()
-    report = investigate(observed)
+    report = investigate(observed, reasoning=blue_reasoning)
     gate = gate_score(observed, load_incumbent())
     trace_artifact = store.put_json("traces", trace.trace_id, trace.model_dump(mode="json"))
     record = CycleRecord(
