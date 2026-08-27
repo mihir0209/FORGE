@@ -57,6 +57,26 @@ def test_campaign_tick_is_restart_safe_and_rotates_families(
     assert first[0]["family_slug"] != second[0]["family_slug"]
 
 
+def test_campaign_tick_distributes_behavioral_research_across_ranked_gaps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime(2026, 8, 26, 12, 0, tzinfo=UTC)
+    supervisor = _supervisor(tmp_path, now)
+    monkeypatch.setenv("FORGE_CAMPAIGN_ENABLED", "1")
+    monkeypatch.setenv("FORGE_CAMPAIGN_FAMILIES_PER_SLOT", "1")
+    monkeypatch.setenv("FORGE_CAMPAIGN_BEHAVIORAL_PER_SLOT", "5")
+    monkeypatch.setattr(campaign, "supervisor_from_env", lambda: supervisor)
+    monkeypatch.setattr(campaign, "registry_from_env", InMemoryRegistry)
+
+    requests = campaign.campaign_tick(now)
+    behavioral = [request for request in requests if request["scenario"] is None]
+
+    assert len(requests) == 6
+    assert len(behavioral) == 5
+    assert len({request["brief_id"] for request in behavioral}) == 5
+    assert len({request["seed"] for request in behavioral}) == 5
+
+
 def test_completed_cycle_key_is_not_readmitted(tmp_path: Path) -> None:
     now = datetime(2026, 8, 26, 12, 0, tzinfo=UTC)
     supervisor = _supervisor(tmp_path, now)
@@ -64,9 +84,7 @@ def test_completed_cycle_key_is_not_readmitted(tmp_path: Path) -> None:
     assert supervisor.admit(cycle_key="cycle:1", queue_depth=0, storage_reservation=10, now=now)
     supervisor.cycle_started("cycle:1")
     supervisor.cycle_completed(cycle_key="cycle:1")
-    assert not supervisor.admit(
-        cycle_key="cycle:1", queue_depth=0, storage_reservation=10, now=now
-    )
+    assert not supervisor.admit(cycle_key="cycle:1", queue_depth=0, storage_reservation=10, now=now)
 
 
 def test_released_admission_restores_capacity(tmp_path: Path) -> None:

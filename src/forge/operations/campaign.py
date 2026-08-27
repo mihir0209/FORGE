@@ -7,6 +7,8 @@ import zlib
 from datetime import UTC, datetime
 
 from forge.contracts.contracts import EvCycleRequested, RunState, ev_dict
+from forge.gapmine import rank
+from forge.kb import registry_from_env
 from forge.operations.runtime import supervisor_from_env
 
 DEFAULT_FAMILIES = (
@@ -58,11 +60,9 @@ def campaign_tick(now: datetime | None = None) -> list[dict[str, object]]:
                 )
             )
         )
-    if os.environ.get("FORGE_CAMPAIGN_BEHAVIORAL_PER_SLOT", "1").lower() in {
-        "1",
-        "true",
-        "yes",
-    }:
-        seed = zlib.crc32(f"{slot_id}:behavioral".encode()) & 0x7FFFFFFF
-        requests.append(ev_dict(EvCycleRequested(seed=seed)))
+    behavioral_per_slot = max(0, int(os.environ.get("FORGE_CAMPAIGN_BEHAVIORAL_PER_SLOT", "1")))
+    briefs = rank(registry_from_env(), limit=behavioral_per_slot)
+    for brief in briefs:
+        seed = zlib.crc32(f"{slot_id}:behavioral:{brief.brief_id}".encode()) & 0x7FFFFFFF
+        requests.append(ev_dict(EvCycleRequested(seed=seed, brief_id=brief.brief_id)))
     return requests
