@@ -24,9 +24,23 @@ if TYPE_CHECKING:
 def _control_fp_rate(candidate: CandidateReport, n_controls: int = 20) -> float:
     import joblib
 
-    if not Path(candidate.artifact_path).exists():
+    artifact = Path(candidate.artifact_path)
+    # only allow artifacts under data/models
+    try:
+        artifact.resolve().relative_to(Path("data/models").resolve())
+    except ValueError:
         return 1.0
-    model: Any = joblib.load(candidate.artifact_path)
+    if not artifact.exists():
+        return 1.0
+    # verify hash before deserializing to prevent RCE via crafted joblib pickle
+    if candidate.artifact_sha256:
+        try:
+            digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        except Exception:
+            return 1.0
+        if digest != candidate.artifact_sha256:
+            return 1.0
+    model: Any = joblib.load(artifact)
     from forge.detect import trace_features
 
     flagged = 0
@@ -77,7 +91,13 @@ def _incumbent_auc_on_dataset(dataset: Any, incumbent: Any) -> float:
 
 def _validate_manifest(report: CandidateReport) -> bool:
     try:
-        path = Path(report.dataset_manifest_path or "")
+        raw_path = report.dataset_manifest_path or ""
+        path = Path(raw_path)
+        # prevent path traversal: manifest must live under data/datasets
+        try:
+            path.resolve().relative_to(Path("data/datasets").resolve())
+        except ValueError:
+            return False
         manifest: dict[str, Any] = json.loads(path.read_text())
         payload = {key: value for key, value in manifest.items() if key != "sha256"}
         digest = hashlib.sha256(

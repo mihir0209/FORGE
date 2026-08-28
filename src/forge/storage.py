@@ -29,15 +29,28 @@ def save_artifact(kind: str, art_id: str, payload: dict[str, Any]) -> str:
     ensure_dirs()
     if kind not in _KINDS:
         raise ValueError(f"unknown artifact kind '{kind}'")
+    # prevent path traversal via art_id
+    if "/" in art_id or "\\" in art_id or ".." in art_id:
+        raise ValueError(f"invalid artifact id '{art_id}'")
     rel = f"{kind}/{art_id}.json"
     path = artifacts_root() / rel
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, sort_keys=True))
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    tmp.replace(path)
     return rel
 
 
 def load_artifact(ref: str) -> dict[str, Any]:
+    # prevent traversal via ref
+    if ".." in ref or ref.startswith("/") or "\\" in ref:
+        raise ValueError(f"invalid artifact ref '{ref}'")
     path = artifacts_root() / ref
+    # ensure resolved path is under artifacts_root
+    try:
+        path.resolve().relative_to(artifacts_root().resolve())
+    except ValueError as exc:
+        raise ValueError(f"artifact ref escapes root: {ref}") from exc
     return cast("dict[str, Any]", json.loads(path.read_text()))
 
 

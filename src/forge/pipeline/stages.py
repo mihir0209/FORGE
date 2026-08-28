@@ -74,7 +74,8 @@ def _pick_brief(reg: Registry, brief_id: str | None) -> GapBrief:
 
 
 def _cycle_key(data: dict[str, Any]) -> str:
-    return f"seed:{data.get('seed')}"
+    run_id = os.environ.get("FORGE_RUN_ID", "unsupervised")
+    return f"{run_id}:seed:{data.get('seed')}:family:{data.get('family_slug') or data.get('brief_id') or 'unknown'}"
 
 
 # ------------------------------------------------------------------- stages
@@ -82,8 +83,10 @@ def _cycle_key(data: dict[str, Any]) -> str:
 
 def stage_gap_mine(_: dict[str, Any] | None = None) -> list[dict[str, object]]:
     """Nightly/demand: rank deficits, request one cycle per brief."""
+    from datetime import UTC, datetime
+
     reg = _registry()
-    day = date.today().isoformat()
+    day = datetime.now(UTC).date().isoformat()
     outs: list[dict[str, object]] = []
     for b in rank(reg):
         seed = zlib.crc32(f"{b.brief_id}:{day}".encode()) & 0x7FFFFFFF
@@ -106,21 +109,25 @@ def stage_admit_cycle(data: dict[str, Any]) -> bool:
         return True
     state = supervisor.start()
     before_alert = state.queue_alert_open
+    # do not trust client-supplied queue_depth/storage_reservation - use server state
     allowed = supervisor.admit(
         cycle_key=_cycle_key(data),
-        queue_depth=int(data.get("queue_depth", state.queued_cycles)),
-        storage_reservation=int(data.get("storage_reservation", 25 * 1024**2)),
+        queue_depth=state.queued_cycles,
+        storage_reservation=25 * 1024**2,
     )
     after = supervisor.load_required()
     if after.queue_alert_open and not before_alert:
-        notifier_from_env().send(
-            notification_type="queue.full",
-            run_id=after.run_id,
-            subject=f"FORGE queue high-water: {after.run_id}",
-            body=f"Queued={after.queued_cycles}; capacity={supervisor.config.queue_capacity}.",
-            dedup_scope=f"queue-episode-{after.version}",
-            dry_run=os.environ.get("SMTP_DRY_RUN", "0") == "1",
-        )
+        try:
+            notifier_from_env().send(
+                notification_type="queue.full",
+                run_id=after.run_id,
+                subject=f"FORGE queue high-water: {after.run_id}",
+                body=f"Queued={after.queued_cycles}; capacity={supervisor.config.queue_capacity}.",
+                dedup_scope=f"queue-episode-{after.version}",
+                dry_run=os.environ.get("SMTP_DRY_RUN", "0") == "1",
+            )
+        except Exception:
+            pass
     return allowed
 
 

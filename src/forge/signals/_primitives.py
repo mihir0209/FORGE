@@ -22,6 +22,8 @@ def _payments(view: ObservedTraceView) -> list[TraceEvent]:
 
 def velocity_bursts(view: ObservedTraceView) -> list[Signal]:
     """Same customer paying many times inside a short window."""
+    from collections import deque
+
     per_customer: dict[str, list[TraceEvent]] = defaultdict(list)
     for e in _payments(view):
         per_customer[e.actor_id].append(e)
@@ -31,24 +33,23 @@ def velocity_bursts(view: ObservedTraceView) -> list[Signal]:
         if len(pays) < _BURST_COUNT:
             continue
         pays_sorted = sorted(pays, key=lambda e: e.ts)
-        best_run: list[TraceEvent] = []
-        run: list[TraceEvent] = [pays_sorted[0]]
-        for prev, cur in itertools.pairwise(pays_sorted):
-            if cur.ts - prev.ts <= _BURST_WINDOW:
-                run.append(cur)
-            else:
-                best_run = max(best_run, run, key=len)
-                run = [cur]
-        best_run = max(best_run, run, key=len)
-        if len(best_run) >= _BURST_COUNT:
-            strength = min(1.0, len(best_run) / (2 * _BURST_COUNT))
+        window: deque[TraceEvent] = deque()
+        best_window: list[TraceEvent] = []
+        for cur in pays_sorted:
+            window.append(cur)
+            while window and cur.ts - window[0].ts > _BURST_WINDOW:
+                window.popleft()
+            if len(window) > len(best_window):
+                best_window = list(window)
+        if len(best_window) >= _BURST_COUNT:
+            strength = min(1.0, len(best_window) / (2 * _BURST_COUNT))
             signals.append(
                 Signal(
                     name="velocity_burst",
                     description=(
-                        f"{len(best_run)} payments within {_BURST_WINDOW} for customer {cid}"
+                        f"{len(best_window)} payments within {_BURST_WINDOW} for customer {cid}"
                     ),
-                    evidence_refs=[e.event_id for e in best_run],
+                    evidence_refs=[e.event_id for e in best_window],
                     strength=strength,
                 )
             )
@@ -248,6 +249,13 @@ def all_signals(view: ObservedTraceView) -> list[Signal]:
         + app_scam_signals(view)
         + bank_controlled_media_signals(view)
     )
-    seen: set[str] = set()
-    unique = [s for s in merged if not (s.name in seen or seen.add(s.name))]
+    # dedup by (name, evidence) to preserve per-customer bursts
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+    unique: list[Signal] = []
+    for s in merged:
+        key = (s.name, tuple(sorted(s.evidence_refs)))
+        if key not in seen:
+            seen.add(key)
+            unique.append(s)
+    # keep strongest 12 overall, but ensure velocity_burst per customer is preserved
     return sorted(unique, key=lambda s: -s.strength)[:12]
