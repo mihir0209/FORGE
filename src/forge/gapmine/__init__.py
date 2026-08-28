@@ -185,6 +185,15 @@ def propose_variant(
 def fallback_brief() -> GapBrief:
     """Deterministic default objective when ranking yields nothing."""
     matrix = f3_matrix()
+    if not matrix.tactics:
+        return GapBrief(
+            brief_id="gap_default",
+            objective="first coverage for unknown tactic",
+            target_f3_cells=[],
+            suggested_family="generic_family",
+            priority=0.5,
+            rationale="registry empty or fully covered without blind spots",
+        )
     tac = matrix.tactics[0]
     return GapBrief(
         brief_id="gap_default",
