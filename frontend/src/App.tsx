@@ -22,6 +22,7 @@ import {
   Target,
   X
 } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import NumberFlow from "@number-flow/react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
@@ -114,10 +115,26 @@ export default function App() {
     void api.cycle(selectedCycle).then(setDetail).catch(() => setDetail(null));
   }, [selectedCycle]);
 
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void Promise.all([api.cycles(), api.coverage(), api.operations()]).then(([nextCycles, nextCoverage, nextOperations]) => {
+        if (nextCycles.length !== cycles.length) {
+          const newest = nextCycles[0];
+          if (newest && newest.cycle_id !== cycles[0]?.cycle_id) toast.success(`New cycle ${newest.family.replaceAll("_", " ")}`, { description: `${newest.blue_verdict} · ${newest.coverage} · score ${Math.round(newest.gate_score * 100)}%` });
+        }
+        setCycles(nextCycles);
+        setCoverage(nextCoverage);
+        setOperations(nextOperations);
+      }).catch(() => {});
+    }, 10000);
+    return () => window.clearInterval(id);
+  }, [cycles]);
+
   const active = nav.find((item) => item.id === view)!;
 
   return (
     <div className="app-shell">
+      {mobileNav && <button className="rail-backdrop" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
       <aside className={`rail ${mobileNav ? "rail-open" : ""}`}>
         <div className="brand">
           <div className="brand-mark">F</div>
@@ -149,17 +166,19 @@ export default function App() {
           <button className="refresh-button" onClick={() => void refresh()} disabled={loading}><RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh</button>
         </header>
 
-        <div className="page">
-          {view === "overview" && <Overview cycles={cycles} coverage={coverage} model={model} gaps={gaps} onCycle={(id) => { selectCycle(id); setView("attack"); }} />}
-          {view === "loop" && <ClosedLoop cycles={cycles} detail={detail} selected={selectedCycle} variants={variants} operations={operations} onSelect={selectCycle} />}
-          {view === "repository" && <StrategyRepositoryView repository={strategies} onRepository={setStrategies} />}
-          {view === "operations" && <OperationsView operations={operations} onRefresh={refresh} />}
-          {view === "attack" && <AttackLab cycles={cycles} detail={detail} selected={selectedCycle} onSelect={selectCycle} />}
-          {view === "defense" && <DefenseLab cycles={cycles} detail={detail} selected={selectedCycle} onSelect={selectCycle} />}
-          {view === "model" && <ModelDashboard model={model} cycles={cycles} />}
-          {view === "gaps" && <GapMiner coverage={coverage} gaps={gaps} />}
-          {view === "chat" && <AnalystChat detail={detail} cycleId={selectedCycle} />}
-        </div>
+        <AnimatePresence mode="wait">
+          <motion.div key={view} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }} className="page">
+            {view === "overview" && <Overview cycles={cycles} coverage={coverage} model={model} gaps={gaps} onCycle={(id) => { selectCycle(id); setView("attack"); }} />}
+            {view === "loop" && <ClosedLoop cycles={cycles} detail={detail} selected={selectedCycle} variants={variants} operations={operations} onSelect={selectCycle} />}
+            {view === "repository" && <StrategyRepositoryView repository={strategies} onRepository={setStrategies} />}
+            {view === "operations" && <OperationsView operations={operations} onRefresh={refresh} />}
+            {view === "attack" && <AttackLab cycles={cycles} detail={detail} selected={selectedCycle} onSelect={selectCycle} />}
+            {view === "defense" && <DefenseLab cycles={cycles} detail={detail} selected={selectedCycle} onSelect={selectCycle} />}
+            {view === "model" && <ModelDashboard model={model} cycles={cycles} />}
+            {view === "gaps" && <GapMiner coverage={coverage} gaps={gaps} />}
+            {view === "chat" && <AnalystChat detail={detail} cycleId={selectedCycle} />}
+          </motion.div>
+        </AnimatePresence>
       </main>
     </div>
   );
@@ -176,10 +195,10 @@ function Overview({ cycles, coverage, model, gaps, onCycle }: { cycles: CycleSum
   return <>
     <PageTitle kicker="Featured AI-assisted scam defense" title="Detect the campaign, not just the fake." copy="The latest APP scenario models off-channel impersonation driving a genuine customer session. Historical research cycles remain visible below." />
     <section className="metric-strip">
-      <Metric label="Adversarial cycles" value={cycles.length} note={`${cycles.filter((c) => c.accepted).length} admitted`} />
-      <Metric label="Mean gate score" value={avgScore * 100} suffix="%" note={`${detected} with signal`} />
-      <Metric label="F3 tactics tested" value={coverage?.summary.tactics_tested ?? 0} suffix=" / 8" note={`${coverage?.summary.techniques_tested ?? 0} techniques`} />
-      <Metric label="Residual blind spots" value={blind} note={blind ? "requires action" : "no unresolved misses"} alert={blind > 0} />
+      <Metric label="Adversarial cycles" value={cycles.length} note={`${cycles.filter((c) => c.accepted).length} admitted`} delay={0} />
+      <Metric label="Mean gate score" value={avgScore * 100} suffix="%" note={`${detected} with signal`} delay={1} />
+      <Metric label="F3 tactics tested" value={coverage?.summary.tactics_tested ?? 0} suffix=" / 8" note={`${coverage?.summary.techniques_tested ?? 0} techniques`} delay={2} />
+      <Metric label="Residual blind spots" value={blind} note={blind ? "requires action" : "no unresolved misses"} alert={blind > 0} delay={3} />
     </section>
     <div className="overview-grid">
       <section className="panel pipeline-panel">
@@ -222,7 +241,7 @@ function ClosedLoop({ cycles, detail, selected, variants, operations, onSelect }
     <PageTitle kicker="Competition proof · identify → generate → defend → learn" title="Closed Loop" copy="One evidence chain from a ranked fraud hypothesis to a blind decision, residual variant and content-addressed hardening corpus." />
     <div className="loop-toolbar">
       <CycleSelector cycles={cycles} selected={selected} onSelect={onSelect} />
-      <button className="primary-action" onClick={() => void api.runDemo().then((result) => toast.success("Demo suite queued", { description: `${result.families.length} family-disjoint scenarios` })).catch((error) => toast.error("Demo queue failed", { description: String(error) }))}><Play size={15} /> Run demo suite</button>
+      <button className="primary-action" onClick={() => void toast.promise(api.runDemo(), { loading: "Queuing demo suite…", success: (result) => `${result.families.length} family-disjoint scenarios queued`, error: (err) => String(err) })}><Play size={15} /> Run demo suite</button>
     </div>
     <div className="plane-lane"><span>CONTROL PLANE</span><b>Inngest schedules, retries and persists state</b><i /><span>WORKER PLANE</span><b>Compose · simulate · investigate · score · learn</b></div>
     <div className="loop-grid">
@@ -358,8 +377,8 @@ function ComponentRow({ name, status, detail, action }: { name: string; status: 
 function Inventory({ label, value }: { label: string; value: number }) { return <div><span>{label}</span><b>{value}</b></div>; }
 function formatBytes(bytes: number) { return bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${(bytes / 1024).toFixed(1)} KiB` : `${(bytes / 1024 ** 2).toFixed(1)} MiB`; }
 
-function Metric({ label, value, suffix = "", note, alert }: { label: string; value: number; suffix?: string; note: string; alert?: boolean }) {
-  return <div className={`metric ${alert ? "metric-alert" : ""}`}><span>{label}</span><div><NumberFlow value={value} format={{ maximumFractionDigits: 1 }} /><em>{suffix}</em></div><small>{note}</small></div>;
+function Metric({ label, value, suffix = "", note, alert, delay = 0 }: { label: string; value: number; suffix?: string; note: string; alert?: boolean; delay?: number }) {
+  return <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, delay: delay * 0.04, ease: [0.23, 1, 0.32, 1] }} className={`metric ${alert ? "metric-alert" : ""}`}><span>{label}</span><div><NumberFlow value={value} format={{ maximumFractionDigits: 1 }} trend={0} /><em>{suffix}</em></div><small>{note}</small></motion.div>;
 }
 
 function PanelHeader({ icon: Icon, overline, title, action }: { icon: typeof Activity; overline: string; title: string; action?: string }) {

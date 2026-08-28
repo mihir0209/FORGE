@@ -28,6 +28,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--blue); outl
 code { font-family: "DM Mono", monospace; }
 
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 238px minmax(0, 1fr); }
+.rail-backdrop { position: fixed; inset: 0; background: rgb(0 0 0 / .42); backdrop-filter: blur(2px); z-index: 15; border: 0; }
 .rail { position: sticky; top: 0; height: 100vh; padding: 24px 17px 18px; display: flex; flex-direction: column; background: #171914; border-right: 1px solid #2c2f29; z-index: 20; }
 .brand { display: flex; align-items: center; gap: 11px; padding: 2px 5px; }
 .brand-mark { width: 32px; aspect-ratio: 1; display: grid; place-items: center; background: var(--red); color: #151612; font: 800 18px "Newsreader", serif; border-radius: 2px; }
