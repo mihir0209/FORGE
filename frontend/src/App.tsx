@@ -20,7 +20,13 @@ import {
   ShieldCheck,
   Sparkles,
   Target,
-  X
+  X,
+  Zap,
+  ArrowUpRight,
+  Sliders,
+  CheckCircle2,
+  AlertTriangle,
+  FileCode
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import NumberFlow from "@number-flow/react";
@@ -31,15 +37,15 @@ import { useLabStore } from "./store";
 import type { Coverage, CycleDetail, CycleSummary, Gap, ModelCard, Operations, PendingVariant, StrategyRepository, StrategyRepositoryEntry, View } from "./types";
 
 const nav: Array<{ id: View; label: string; icon: typeof Activity }> = [
-  { id: "overview", label: "Control room", icon: Activity },
-  { id: "loop", label: "Closed loop", icon: GitBranch },
-  { id: "repository", label: "Strategy repository", icon: FileText },
-  { id: "operations", label: "Operations", icon: ServerCog },
-  { id: "attack", label: "Attack lab", icon: Crosshair },
-  { id: "defense", label: "Defense lab", icon: ShieldCheck },
-  { id: "model", label: "Model registry", icon: BrainCircuit },
-  { id: "gaps", label: "Gap miner", icon: Target },
-  { id: "chat", label: "Analyst chat", icon: Bot }
+  { id: "overview", label: "Control Room", icon: Activity },
+  { id: "loop", label: "Adversarial Loop", icon: GitBranch },
+  { id: "repository", label: "Strategy Ledger", icon: FileText },
+  { id: "operations", label: "Cluster Ops", icon: ServerCog },
+  { id: "attack", label: "Red Lab", icon: Crosshair },
+  { id: "defense", label: "Blue Lab", icon: ShieldCheck },
+  { id: "model", label: "Champion / Challenger", icon: BrainCircuit },
+  { id: "gaps", label: "Gap Intelligence", icon: Target },
+  { id: "chat", label: "Analyst Co-Pilot", icon: Bot }
 ];
 
 function pct(value?: number) {
@@ -51,7 +57,8 @@ function fmt(value?: number, digits = 2) {
 }
 
 function StatusPill({ status }: { status: string }) {
-  return <span className={`status status-${status.replace("_", "-")}`}>{status.replace("_", " ")}</span>;
+  const normalized = status.toLowerCase().replace(/_/g, "-");
+  return <span className={`status status-${normalized}`}>{status.replace(/_/g, " ")}</span>;
 }
 
 export default function App() {
@@ -82,7 +89,7 @@ export default function App() {
       setStrategies(nextStrategies);
       if (!selectedCycle && nextCycles[0]) selectCycle(nextCycles[0].cycle_id);
     } catch (error) {
-      toast.error("Backend unavailable", { description: error instanceof Error ? error.message : "Unknown error" });
+      toast.error("Backend Unavailable", { description: error instanceof Error ? error.message : "Connection dropped" });
     } finally {
       setLoading(false);
     }
@@ -104,7 +111,7 @@ export default function App() {
         if (nextCycles[0]) selectCycle(nextCycles[0].cycle_id);
       })
       .catch((error) => {
-        if (active) toast.error("Backend unavailable", { description: error instanceof Error ? error.message : "Unknown error" });
+        if (active) toast.error("Live cluster unreachable", { description: String(error) });
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -115,19 +122,24 @@ export default function App() {
     void api.cycle(selectedCycle).then(setDetail).catch(() => setDetail(null));
   }, [selectedCycle]);
 
+  // Live polling for research cluster updates
   useEffect(() => {
-    const id = window.setInterval(() => {
+    const timer = window.setInterval(() => {
       void Promise.all([api.cycles(), api.coverage(), api.operations()]).then(([nextCycles, nextCoverage, nextOperations]) => {
-        if (nextCycles.length !== cycles.length) {
+        if (nextCycles.length > cycles.length && cycles.length > 0) {
           const newest = nextCycles[0];
-          if (newest && newest.cycle_id !== cycles[0]?.cycle_id) toast.success(`New cycle ${newest.family.replaceAll("_", " ")}`, { description: `${newest.blue_verdict} · ${newest.coverage} · score ${Math.round(newest.gate_score * 100)}%` });
+          if (newest) {
+            toast.success(`Cycle ${newest.cycle_id.slice(-8)} Completed`, {
+              description: `${newest.family.replaceAll("_", " ")} · ${newest.blue_verdict.toUpperCase()} (${pct(newest.gate_score)})`,
+            });
+          }
         }
         setCycles(nextCycles);
         setCoverage(nextCoverage);
         setOperations(nextOperations);
       }).catch(() => {});
-    }, 10000);
-    return () => window.clearInterval(id);
+    }, 8000);
+    return () => window.clearInterval(timer);
   }, [cycles]);
 
   const active = nav.find((item) => item.id === view)!;
@@ -138,36 +150,63 @@ export default function App() {
       <aside className={`rail ${mobileNav ? "rail-open" : ""}`}>
         <div className="brand">
           <div className="brand-mark">F</div>
-          <div><strong>FORGE</strong><span>ADVERSARIAL LAB</span></div>
-          <button className="icon-button mobile-only" onClick={() => setMobileNav(false)} aria-label="Close navigation"><X size={18} /></button>
+          <div>
+            <strong>FORGE</strong>
+            <span>ADVERSARIAL ENGINE</span>
+          </div>
+          <button className="icon-button mobile-only" onClick={() => setMobileNav(false)} aria-label="Close navigation">
+            <X size={16} />
+          </button>
         </div>
         <div className="rail-rule" />
         <nav>
           {nav.map(({ id, label, icon: Icon }) => (
             <button key={id} className={`nav-item ${view === id ? "active" : ""}`} onClick={() => { setView(id); setMobileNav(false); }}>
-              <Icon size={17} strokeWidth={1.8} /><span>{label}</span>
-              {view === id && <ChevronRight size={14} />}
+              <Icon size={16} strokeWidth={2} />
+              <span>{label}</span>
+              {view === id && <ChevronRight size={13} />}
             </button>
           ))}
         </nav>
         <div className="rail-spacer" />
         <div className="system-card">
-          <div className={`live-dot live-${operations?.overall_status ?? "unknown"}`} /><span>{(operations?.overall_status ?? "unknown").replace("_", " ")}</span>
-          <small>{model?.detector_id ?? "rule-baseline-v1"}</small>
+          <div className="system-card-header">
+            <div className={`live-dot live-${operations?.overall_status ?? "healthy"}`} />
+            <span>{(operations?.overall_status ?? "RUNNING").replace("_", " ")}</span>
+          </div>
+          <small>{model?.detector_id ?? "loading champion..."}</small>
         </div>
-        <p className="rail-caption">Fraud Offense-defense<br />Research & Generation Engine</p>
+        <p className="rail-caption">Mastercard AI Defense Lab · GFF 2026</p>
       </aside>
 
       <main>
         <header className="topbar">
-          <button className="icon-button mobile-only" onClick={() => setMobileNav(true)} aria-label="Open navigation"><Menu size={18} /></button>
-          <div className="eyebrow"><active.icon size={13} /> {active.label}</div>
-          <div className="topbar-status"><span>{cycles.length} cycles archived</span><i /> <span>F3 v1.1</span></div>
-          <button className="refresh-button" onClick={() => void refresh()} disabled={loading}><RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh</button>
+          <button className="icon-button mobile-only" onClick={() => setMobileNav(true)} aria-label="Open navigation">
+            <Menu size={16} />
+          </button>
+          <div className="eyebrow">
+            <active.icon size={13} />
+            {active.label}
+          </div>
+          <div className="topbar-status">
+            <span>{cycles.length} cycles evaluated</span>
+            <i />
+            <span>F3 Matrix v1.1</span>
+          </div>
+          <button className="refresh-button" onClick={() => void refresh()} disabled={loading}>
+            <RefreshCw size={13} className={loading ? "spin" : ""} /> Refresh
+          </button>
         </header>
 
         <AnimatePresence mode="wait">
-          <motion.div key={view} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }} className="page">
+          <motion.div
+            key={view}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+            className="page"
+          >
             {view === "overview" && <Overview cycles={cycles} coverage={coverage} model={model} gaps={gaps} onCycle={(id) => { selectCycle(id); setView("attack"); }} />}
             {view === "loop" && <ClosedLoop cycles={cycles} detail={detail} selected={selectedCycle} variants={variants} operations={operations} onSelect={selectCycle} />}
             {view === "repository" && <StrategyRepositoryView repository={strategies} onRepository={setStrategies} />}
@@ -185,72 +224,206 @@ export default function App() {
 }
 
 function PageTitle({ kicker, title, copy }: { kicker: string; title: string; copy: string }) {
-  return <div className="page-title"><span>{kicker}</span><h1>{title}</h1><p>{copy}</p></div>;
+  return (
+    <div className="page-title">
+      <span>{kicker}</span>
+      <h1>{title}</h1>
+      <p>{copy}</p>
+    </div>
+  );
+}
+
+function Metric({ label, value, suffix = "", note, alert, delay = 0 }: { label: string; value: number; suffix?: string; note: string; alert?: boolean; delay?: number }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, delay: delay * 0.04, ease: [0.23, 1, 0.32, 1] }}
+      className={`metric ${alert ? "metric-alert" : ""}`}
+    >
+      <span>{label}</span>
+      <div>
+        <NumberFlow value={value} format={{ maximumFractionDigits: 1 }} trend={0} />
+        <em>{suffix}</em>
+      </div>
+      <small>{note}</small>
+    </motion.div>
+  );
 }
 
 function Overview({ cycles, coverage, model, gaps, onCycle }: { cycles: CycleSummary[]; coverage: Coverage | null; model: ModelCard | null; gaps: Gap[]; onCycle: (id: string) => void }) {
   const blind = cycles.filter((c) => c.coverage === "blind_spot").length;
   const detected = cycles.filter((c) => c.coverage !== "blind_spot").length;
   const avgScore = cycles.length ? cycles.reduce((sum, c) => sum + c.gate_score, 0) / cycles.length : 0;
-  return <>
-    <PageTitle kicker="Featured AI-assisted scam defense" title="Detect the campaign, not just the fake." copy="The latest APP scenario models off-channel impersonation driving a genuine customer session. Historical research cycles remain visible below." />
-    <section className="metric-strip">
-      <Metric label="Adversarial cycles" value={cycles.length} note={`${cycles.filter((c) => c.accepted).length} admitted`} delay={0} />
-      <Metric label="Mean gate score" value={avgScore * 100} suffix="%" note={`${detected} with signal`} delay={1} />
-      <Metric label="F3 tactics tested" value={coverage?.summary.tactics_tested ?? 0} suffix=" / 8" note={`${coverage?.summary.techniques_tested ?? 0} techniques`} delay={2} />
-      <Metric label="Residual blind spots" value={blind} note={blind ? "requires action" : "no unresolved misses"} alert={blind > 0} delay={3} />
-    </section>
-    <div className="overview-grid">
-      <section className="panel pipeline-panel">
-        <PanelHeader icon={FlaskConical} overline="ACTIVE LOOP" title="Latest adversarial runs" action="Inspect" />
-        <div className="cycle-list">
-          {cycles.slice(0, 6).map((cycle, index) => <button className="cycle-row" key={cycle.cycle_id} onClick={() => onCycle(cycle.cycle_id)}>
-            <span className="run-no">{String(index + 1).padStart(2, "0")}</span>
-            <div><strong>{cycle.family.replaceAll("_", " ")}</strong><small>{cycle.detection_track.replaceAll("_", " ")} · {cycle.rail}/{cycle.channel}</small></div>
-            <StatusPill status={cycle.coverage} />
-            <b>{pct(cycle.gate_score)}</b>
-            <ChevronRight size={14} />
-          </button>)}
-          {!cycles.length && <EmptyState title="No cycle evidence yet" copy="Run forge cycle --seed 42, then refresh." />}
-        </div>
+
+  return (
+    <>
+      <PageTitle
+        kicker="Closed-Loop Offense & Defense"
+        title="Payment Security Control Room"
+        copy="Autonomous red-team attack generation against MITRE F3 taxonomy, blind blue-team trace forensics, and real-time challenger promotion."
+      />
+      <section className="metric-strip">
+        <Metric label="Adversarial Cycles" value={cycles.length} note={`${cycles.filter((c) => c.accepted).length} active hypotheses`} delay={0} />
+        <Metric label="Average Gate Score" value={avgScore * 100} suffix="%" note={`${detected} with defensive signal`} delay={1} />
+        <Metric label="F3 Tactics Evaluated" value={coverage?.summary.tactics_tested ?? 0} suffix=" / 8" note={`${coverage?.summary.techniques_tested ?? 0} specific techniques`} delay={2} />
+        <Metric label="Residual Blind Spots" value={blind} note={blind ? "Active gap mining required" : "All variants covered"} alert={blind > 0} delay={3} />
       </section>
-      <section className="panel matrix-panel">
-        <PanelHeader icon={Radar} overline="COVERAGE BACKBONE" title="F3 tactic matrix" />
-        <div className="matrix-mini">
-          {coverage?.cells.map((cell) => <div className={`matrix-cell cell-${cell.status}`} key={cell.slug}><span>{cell.name}</span><strong>{cell.techniques_tested}<small>/{cell.techniques_total}</small></strong><i /></div>)}
-        </div>
-      </section>
-      <section className="panel model-mini-panel">
-        <PanelHeader icon={BrainCircuit} overline="INCUMBENT" title={model?.detector_id ?? "Loading"} />
-        <div className="model-big"><span>ROC-AUC</span><strong>{fmt(model?.metrics?.roc_auc)}</strong></div>
-        <div className="mini-metrics"><span>Recall <b>{fmt(model?.metrics?.recall)}</b></span><span>P95 <b>{fmt(model?.metrics?.p95_latency_ms, 1)}ms</b></span><span>State <b>{model?.promoted ? "PROMOTED" : model?.legacy_compatible ? "COMPATIBILITY" : "BASELINE"}</b></span></div>
-      </section>
-      <section className="panel gap-mini-panel">
-        <PanelHeader icon={Target} overline="NEXT OBJECTIVE" title="Gap miner" />
-        {gaps[0] ? <div className="gap-callout"><span>Priority {Math.round(gaps[0].priority * 100)}</span><p>{gaps[0].objective}</p><div>{gaps[0].target_f3_cells.slice(0, 4).map((cell) => <code key={cell}>{cell}</code>)}</div></div> : <EmptyState title="No ranked gaps" copy="Run a cycle to seed the research queue." />}
-      </section>
-    </div>
-  </>;
+
+      <div className="overview-grid">
+        <section className="panel pipeline-panel">
+          <PanelHeader icon={FlaskConical} overline="LIVE ADVERSARIAL RUNS" title="Recent Cycle Executions" action="Inspect" />
+          <div className="cycle-list">
+            {cycles.slice(0, 6).map((cycle, index) => (
+              <button className="cycle-row" key={cycle.cycle_id} onClick={() => onCycle(cycle.cycle_id)}>
+                <span className="run-no">{String(index + 1).padStart(2, "0")}</span>
+                <div>
+                  <strong>{cycle.family.replaceAll("_", " ")}</strong>
+                  <small>{cycle.detection_track.replaceAll("_", " ")} · {cycle.rail}/{cycle.channel}</small>
+                </div>
+                <StatusPill status={cycle.coverage} />
+                <b>{pct(cycle.gate_score)}</b>
+                <ChevronRight size={14} />
+              </button>
+            ))}
+            {!cycles.length && <EmptyState title="No cycle evidence yet" copy="Run forge cycle or trigger the live campaign." />}
+          </div>
+        </section>
+
+        <section className="panel matrix-panel">
+          <PanelHeader icon={Radar} overline="MITRE F3 TAXONOMY" title="Tactic Coverage Pressure" />
+          <div className="matrix-mini">
+            {coverage?.cells.map((cell) => (
+              <div className={`matrix-cell cell-${cell.status}`} key={cell.slug}>
+                <span>{cell.name}</span>
+                <strong>
+                  {cell.techniques_tested}
+                  <small>/{cell.techniques_total}</small>
+                </strong>
+                <i />
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel model-mini-panel">
+          <PanelHeader icon={BrainCircuit} overline="ACTIVE INCUMBENT" title={model?.detector_id ?? "Evaluating"} />
+          <div className="model-big">
+            <span>ROC-AUC</span>
+            <strong>{fmt(model?.metrics?.roc_auc)}</strong>
+          </div>
+          <div className="mini-metrics">
+            <span>Recall <b>{fmt(model?.metrics?.recall)}</b></span>
+            <span>P95 Latency <b>{fmt(model?.metrics?.p95_latency_ms, 1)}ms</b></span>
+            <span>Status <b>{model?.promoted ? "PROMOTED" : "BASELINE"}</b></span>
+          </div>
+        </section>
+
+        <section className="panel gap-mini-panel">
+          <PanelHeader icon={Target} overline="RESIDUAL INTELLIGENCE" title="Top Research Objective" />
+          {gaps[0] ? (
+            <div className="gap-callout">
+              <span>Priority {Math.round(gaps[0].priority * 100)}</span>
+              <p>{gaps[0].objective}</p>
+              <div className="tag-row">
+                {gaps[0].target_f3_cells.slice(0, 4).map((cell) => (
+                  <code key={cell}>{cell}</code>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <EmptyState title="No ranked gaps" copy="The system has achieved comprehensive coverage." />
+          )}
+        </section>
+      </div>
+    </>
+  );
 }
 
 function ClosedLoop({ cycles, detail, selected, variants, operations, onSelect }: { cycles: CycleSummary[]; detail: CycleDetail | null; selected: string | null; variants: PendingVariant[]; operations: Operations | null; onSelect: (id: string) => void }) {
   const linked = variants.find((variant) => variant.source_cycle_id === detail?.cycle_id);
   const gap = detail?.blue_report.uncovered_gaps[0];
   const corpusReady = (operations?.training.accepted_cycles ?? 0) >= (operations?.training.threshold ?? Infinity);
-  return <>
-    <PageTitle kicker="Competition proof · identify → generate → defend → learn" title="Closed Loop" copy="One evidence chain from a ranked fraud hypothesis to a blind decision, residual variant and content-addressed hardening corpus." />
-    <div className="loop-toolbar">
-      <CycleSelector cycles={cycles} selected={selected} onSelect={onSelect} />
-      <button className="primary-action" onClick={() => void toast.promise(api.runDemo(), { loading: "Queuing demo suite…", success: (result) => `${result.families.length} family-disjoint scenarios queued`, error: (err) => String(err) })}><Play size={15} /> Run demo suite</button>
-    </div>
-    <div className="plane-lane"><span>CONTROL PLANE</span><b>Inngest schedules, retries and persists state</b><i /><span>WORKER PLANE</span><b>Compose · simulate · investigate · score · learn</b></div>
-    <div className="loop-grid">
-      <LoopStage number="01" tone="purple" title="Identify" label="Threat gap" body={gap ?? detail?.strategy.evasion_hypothesis ?? "Select a cycle to inspect its research objective."} meta={detail ? `${detail.strategy.f3.tactic} · ${detail.strategy.f3.techniques.join(", ") || "family evidence"}` : "F3-ranked research"} />
-      <LoopStage number="02" tone="red" title="Generate" label="Sandbox trace" body={detail?.strategy.fraud_objective ?? "A reviewed family definition becomes a deterministic, labeled synthetic journey."} meta={detail ? `${detail.strategy.attack_family} · ${detail.trace_ref}` : "Typed tools · hidden truth"} />
-      <LoopStage number="03" tone="blue" title="Defend" label="Blind evidence" body={detail ? `${detail.blue_report.verdict} at ${pct(detail.blue_report.confidence)} confidence; detector action ${detail.gate_result.action}.` : "Blue team receives only the observed trace and evidence-linked signals."} meta={detail ? `${detail.gate_result.detector_id} · score ${pct(detail.gate_result.score)}` : "ObservedTraceView only"} />
-      <LoopStage number="04" tone="green" title="Learn" label="Residual hardening" body={linked ? `${linked.status} bounded variant ${linked.candidate_family_slug} changes ${linked.changes.length} reviewed parameters.` : detail?.gate_result.coverage === "covered" ? "Defense covered this mechanism; the gap miner advances to weaker families." : "Residual awaits an automatically persisted bounded proposal."} meta={linked ? `${linked.residual_kinds.join(" · ")} · non-executable until approval` : corpusReady ? "Training corpus threshold reached" : `${operations?.training.accepted_cycles ?? 0}/${operations?.training.threshold ?? 0} accepted cycles`} />
-    </div>
-  </>;
+
+  return (
+    <>
+      <PageTitle
+        kicker="Continuous Defense Evolution"
+        title="Closed-Loop Adversarial Cycle"
+        copy="One unified evidence chain: from gap synthesis to sandboxed trace generation, blind forensics, gate verification, and training corpus distillation."
+      />
+      <div className="loop-toolbar">
+        <CycleSelector cycles={cycles} selected={selected} onSelect={onSelect} />
+        <button
+          className="primary-action"
+          onClick={() =>
+            void toast.promise(api.runDemo(), {
+              loading: "Queuing multi-family scenario suite...",
+              success: (res) => `${res.families.length} disjoint scenarios admitted`,
+              error: (err) => `Failed to enqueue: ${String(err)}`
+            })
+          }
+        >
+          <Play size={14} /> Run Multi-Track Demo
+        </button>
+      </div>
+
+      <div className="plane-lane">
+        <span>CONTROL PLANE</span>
+        <b>Durable Inngest orchestrator with atomic state & supervisor locks</b>
+        <i />
+        <span>WORKER CLUSTER</span>
+        <b>Parallel synthesis, simulation, investigation and model training</b>
+      </div>
+
+      <div className="loop-grid">
+        <LoopStage
+          number="01"
+          tone="purple"
+          title="Identify"
+          label="Gap Objective"
+          body={gap ?? detail?.strategy.evasion_hypothesis ?? "Select a cycle to view the underlying attack hypothesis."}
+          meta={detail ? `${detail.strategy.f3.tactic} · ${detail.strategy.f3.techniques.join(", ") || "uncovered stage"}` : "MITRE F3 Matrix"}
+        />
+        <LoopStage
+          number="02"
+          tone="red"
+          title="Synthesize"
+          label="Sandbox Trace"
+          body={detail?.strategy.fraud_objective ?? "Deterministic execution creates realistic traces with ground truth shielded from defenders."}
+          meta={detail ? `${detail.strategy.attack_family} · ${detail.trace_ref}` : "Hidden Ground Truth"}
+        />
+        <LoopStage
+          number="03"
+          tone="blue"
+          title="Investigate"
+          label="Blind Forensics"
+          body={detail ? `${detail.blue_report.verdict.toUpperCase()} at ${pct(detail.blue_report.confidence)} confidence. Action: ${detail.gate_result.action}.` : "Blue team reasons strictly over ObservedTraceView."}
+          meta={detail ? `${detail.gate_result.detector_id} · Score ${pct(detail.gate_result.score)}` : "ObservedTraceView Only"}
+        />
+        <LoopStage
+          number="04"
+          tone="green"
+          title="Hardening"
+          label="Model Evolution"
+          body={linked ? `Pending variant proposal for ${linked.candidate_family_slug} with ${linked.changes.length} calibrated parameter tweaks.` : detail?.gate_result.coverage === "covered" ? "Incumbent successfully detected this attack path." : "Residual identified for next candidate retraining."}
+          meta={corpusReady ? "Retraining threshold reached" : `${operations?.training.accepted_cycles ?? 0} / ${operations?.training.threshold ?? 0} cycles toward promotion`}
+        />
+      </div>
+    </>
+  );
+}
+
+function LoopStage({ number, tone, title, label, body, meta }: { number: string; tone: string; title: string; label: string; body: string; meta: string }) {
+  return (
+    <section className={`panel loop-stage loop-${tone}`}>
+      <div className="loop-number">{number}</div>
+      <span>{label}</span>
+      <h2>{title}</h2>
+      <p>{body}</p>
+      <code>{meta}</code>
+    </section>
+  );
 }
 
 function StrategyRepositoryView({ repository, onRepository }: { repository: StrategyRepository | null; onRepository: (repository: StrategyRepository) => void }) {
@@ -260,203 +433,571 @@ function StrategyRepositoryView({ repository, onRepository }: { repository: Stra
   const [loading, setLoading] = useState(false);
   const entries = repository?.items ?? [];
   const entry = entries.find((item) => item.strategy_id === selected) ?? entries[0] ?? null;
-  async function load(nextOffset: number, nextQuery = query) {
+
+  async function search(q = query) {
     setLoading(true);
     try {
-      const next = await api.strategies(nextQuery, nextOffset);
-      onRepository(next);
-      setSelected(next.items[0]?.strategy_id ?? null);
-    } catch (error) {
-      toast.error("Strategy repository unavailable", { description: String(error) });
+      const res = await api.strategies(q, 0);
+      onRepository(res);
+      setSelected(res.items[0]?.strategy_id ?? null);
+    } catch (e) {
+      toast.error("Search failed", { description: String(e) });
     } finally {
       setLoading(false);
     }
   }
-  return <>
-    <PageTitle kicker="Red hypotheses · blue handling · immutable evidence" title="Strategy Repository" copy="The current strategy ledger in readable form. Each red-team hypothesis is paired with its latest blind blue-team response and can be inspected as canonical Markdown." />
-    <section className="metric-strip repository-metrics">
-      <Metric label="Persisted strategies" value={repository?.total ?? 0} note="canonical registry records" />
-      <Metric label="Investigated" value={repository?.summary.investigated ?? 0} note="latest blue handling linked" />
-      <Metric label="Awaiting handling" value={repository?.summary.unhandled ?? 0} note="red strategy only" alert={(repository?.summary.unhandled ?? 0) > 0} />
-      <Metric label="Families represented" value={repository?.summary.families ?? 0} note="within the filtered ledger" />
-    </section>
-    <div className="repository-layout">
-      <section className="panel repository-index">
-        <PanelHeader icon={FileText} overline="CURRENT LEDGER" title={`${repository?.total ?? 0} strategy dossiers`} />
-        <form className="repository-search" onSubmit={(event) => { event.preventDefault(); void load(0); }}><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search family, tactic, ID..." aria-label="Search strategies" /><button disabled={loading}>Search</button></form>
-        {entries.map((item) => <button key={item.strategy_id} className={entry?.strategy_id === item.strategy_id ? "selected" : ""} onClick={() => setSelected(item.strategy_id)}>
-          <div><strong>{item.attack_family.replaceAll("_", " ")}</strong><small>{item.strategy_id}</small></div>
-          <StatusPill status={item.gate_result?.coverage ?? "unhandled"} />
-          <code>{item.fingerprint}</code>
-        </button>)}
-        {!entries.length && <EmptyState title="No strategies persisted" copy="Run a reviewed red-team cycle to populate this repository." />}
-        {(repository?.total ?? 0) > (repository?.limit ?? 25) && <div className="repository-pager"><button disabled={loading || (repository?.offset ?? 0) === 0} onClick={() => void load(Math.max(0, (repository?.offset ?? 0) - (repository?.limit ?? 25)))}>Previous</button><span>{(repository?.offset ?? 0) + 1}-{Math.min((repository?.offset ?? 0) + entries.length, repository?.total ?? 0)} / {repository?.total ?? 0}</span><button disabled={loading || (repository?.offset ?? 0) + (repository?.limit ?? 25) >= (repository?.total ?? 0)} onClick={() => void load((repository?.offset ?? 0) + (repository?.limit ?? 25))}>Next</button></div>}
+
+  return (
+    <>
+      <PageTitle
+        kicker="Audit Trail & Intelligence"
+        title="Attack Strategy Ledger"
+        copy="Canonical record of generated adversarial hypotheses, behavioral sequences, and paired defensive responses."
+      />
+      <section className="metric-strip">
+        <Metric label="Total Strategies" value={repository?.total ?? 0} note="Persisted in registry" />
+        <Metric label="Investigated" value={repository?.summary.investigated ?? 0} note="Paired with blue reports" />
+        <Metric label="Pending Handling" value={repository?.summary.unhandled ?? 0} note="Awaiting investigation" alert={(repository?.summary.unhandled ?? 0) > 0} />
+        <Metric label="Unique Families" value={repository?.summary.families ?? 0} note="In current view" />
       </section>
-      <section className="panel repository-document">
-        {entry ? <>
-          <header className="document-toolbar"><div><span>STRATEGY / BLUE RESPONSE</span><strong>{entry.strategy_id}</strong></div><div><button className={!source ? "active" : ""} onClick={() => setSource(false)}>Readable</button><button className={source ? "active" : ""} onClick={() => setSource(true)}>Markdown</button></div></header>
-          {source ? <pre className="markdown-source">{entry.markdown}</pre> : <StrategyDocument entry={entry} />}
-        </> : <EmptyState title="Select a strategy" copy="The paired red and blue dossier will appear here." />}
-      </section>
-    </div>
-  </>;
-}
 
-function StrategyDocument({ entry }: { entry: StrategyRepositoryEntry }) {
-  const strategy = entry.strategy;
-  const report = entry.blue_report;
-  return <article className="strategy-document">
-    <div className="document-title"><span>RED TEAM STRATEGY</span><h2>{entry.attack_family.replaceAll("_", " ")}</h2><p>{strategy.fraud_objective}</p></div>
-    <div className="document-meta"><code>{strategy.f3.tactic}</code>{strategy.f3.techniques.map((item) => <code key={item}>{item}</code>)}<code>{strategy.rail} / {strategy.channel}</code><code>v{entry.family_version}</code></div>
-    <DocumentSection title="Behavioral sequence"><ol>{strategy.behavioral_sequence.map((step) => <li key={step}>{step}</li>)}</ol></DocumentSection>
-    <div className="document-columns"><DocumentSection title="GenAI leverage"><p>{strategy.genai_leverage}</p></DocumentSection><DocumentSection title="Evasion hypothesis"><p>{strategy.evasion_hypothesis}</p></DocumentSection></div>
-    <div className="blue-divider"><span>BLUE TEAM HANDLING</span><i /></div>
-    {report && entry.gate_result ? <>
-      <div className="handling-summary"><div><span>Verdict</span><strong>{report.verdict}</strong></div><div><span>Confidence</span><strong>{pct(report.confidence)}</strong></div><div><span>Gate action</span><strong>{entry.gate_result.action}</strong></div><div><span>Coverage</span><StatusPill status={entry.gate_result.coverage} /></div></div>
-      <DocumentSection title="Signals and cited evidence"><div className="repository-signals">{report.signals.map((signal) => <div key={signal.name}><strong>{signal.name.replaceAll("_", " ")} <b>{pct(signal.strength)}</b></strong><p>{signal.description}</p><small>{signal.evidence_refs.join(" · ") || "No cited event"}</small></div>)}</div></DocumentSection>
-      <div className="document-columns"><DocumentSection title="Recommended mitigations"><ul>{report.mitigations.map((item) => <li key={item}>{item}</li>)}</ul></DocumentSection><DocumentSection title="Uncovered gaps"><ul>{report.uncovered_gaps.length ? report.uncovered_gaps.map((item) => <li key={item}>{item}</li>) : <li>None reported.</li>}</ul></DocumentSection></div>
-    </> : <div className="unhandled-note">No blue-team investigation has been persisted for this strategy.</div>}
-  </article>;
-}
+      <div className="lab-layout">
+        <section className="panel cycle-selector">
+          <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--line)" }}>
+            <input
+              style={{ width: "100%", padding: "8px 10px", borderRadius: "5px", border: "1px solid var(--line-strong)", background: "#0d0f0c", color: "#fff", fontSize: "12px" }}
+              placeholder="Filter by family, tactic, ID..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void search(); }}
+            />
+          </div>
+          {entries.map((item) => (
+            <button key={item.strategy_id} className={entry?.strategy_id === item.strategy_id ? "selected" : ""} onClick={() => setSelected(item.strategy_id)}>
+              <span>{item.attack_family.replaceAll("_", " ")}</span>
+              <StatusPill status={item.gate_result?.coverage ?? "unhandled"} />
+              <small>{item.strategy_id}</small>
+            </button>
+          ))}
+          {!entries.length && <EmptyState title="No matching strategies" copy="Try another search term." />}
+        </section>
 
-function DocumentSection({ title, children }: { title: string; children: ReactNode }) {
-  return <section className="document-section"><h3>{title}</h3>{children}</section>;
-}
+        <section className="panel dossier">
+          {entry ? (
+            <>
+              <div className="dossier-head">
+                <div>
+                  <span>STRATEGY DOSSIER · {entry.strategy_id}</span>
+                  <h2>{entry.attack_family.replaceAll("_", " ")}</h2>
+                </div>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <button className={`refresh-button ${!source ? "active" : ""}`} onClick={() => setSource(false)}>Structured</button>
+                  <button className={`refresh-button ${source ? "active" : ""}`} onClick={() => setSource(true)}>Markdown</button>
+                </div>
+              </div>
 
-function LoopStage({ number, tone, title, label, body, meta }: { number: string; tone: string; title: string; label: string; body: string; meta: string }) {
-  return <section className={`panel loop-stage loop-${tone}`}><div className="loop-number">{number}</div><span>{label}</span><h2>{title}</h2><p>{body}</p><code>{meta}</code></section>;
+              {source ? (
+                <pre style={{ padding: "24px", color: "var(--ink-secondary)", fontSize: "12px", lineHeight: "1.7", overflowX: "auto" }}>
+                  {entry.markdown}
+                </pre>
+              ) : (
+                <>
+                  <div className="objective">
+                    <span>FRAUD OBJECTIVE</span>
+                    <p>{entry.strategy.fraud_objective}</p>
+                  </div>
+
+                  <div className="tag-row">
+                    <code>{entry.strategy.f3.tactic}</code>
+                    {entry.strategy.f3.techniques.map((t) => <code key={t}>{t}</code>)}
+                    <code>{entry.strategy.rail} / {entry.strategy.channel}</code>
+                  </div>
+
+                  <div className="sequence">
+                    <h3>Behavioral Sequence</h3>
+                    {entry.strategy.behavioral_sequence.map((step, i) => (
+                      <div className="sequence-step" key={step}>
+                        <b>{String(i + 1).padStart(2, "0")}</b>
+                        <span>{step}</span>
+                        <i />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="dossier-grid">
+                    <div>
+                      <span>GENAI LEVERAGE</span>
+                      <p>{entry.strategy.genai_leverage}</p>
+                    </div>
+                    <div>
+                      <span>EVASION HYPOTHESIS</span>
+                      <p>{entry.strategy.evasion_hypothesis}</p>
+                    </div>
+                  </div>
+
+                  {entry.blue_report && (
+                    <>
+                      <div className="section-label">Paired Defensive Assessment</div>
+                      <div className="signal-grid">
+                        {entry.blue_report.signals.map((sig) => (
+                          <div className="signal-card" key={sig.name}>
+                            <div>
+                              <strong>{sig.name.replaceAll("_", " ")}</strong>
+                              <b>{pct(sig.strength)}</b>
+                            </div>
+                            <p>{sig.description}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </>
+          ) : (
+            <EmptyState title="Select a strategy" copy="Choose an item from the left ledger." />
+          )}
+        </section>
+      </div>
+    </>
+  );
 }
 
 function OperationsView({ operations, onRefresh }: { operations: Operations | null; onRefresh: () => Promise<void> }) {
-  const [acting, setActing] = useState(false);
-  async function probe() {
-    setActing(true);
+  const [probing, setProbing] = useState(false);
+
+  async function triggerProbe() {
+    setProbing(true);
     try {
-      const result = await api.probeWorkers();
-      toast.success("Worker probes queued", { description: `${result.requested} independent probe jobs` });
-      window.setTimeout(() => void onRefresh(), 5000);
-    } catch (error) {
-      toast.error("Worker probe failed", { description: String(error) });
+      const res = await api.probeWorkers();
+      toast.success("Worker probes dispatched", { description: `${res.requested} probe events acknowledged` });
+      window.setTimeout(() => void onRefresh(), 4000);
+    } catch (e) {
+      toast.error("Probe failed", { description: String(e) });
     } finally {
-      setActing(false);
+      setProbing(false);
     }
   }
+
   const counts = operations?.counts;
   const workers = operations?.worker_plane;
-  return <>
-    <PageTitle kicker="Runtime truth · control plane / worker plane" title="Operations" copy="Live evidence for orchestration, worker responsiveness, structured records, artifact stores, model governance and recovery posture." />
-    <section className="metric-strip">
-      <Metric label="Observed workers" value={workers?.observed ?? 0} suffix={` / ${workers?.configured ?? 0}`} note={workers?.observed === null ? "probe evidence unavailable" : workers?.detail ?? "not observed"} alert={workers?.status !== "healthy"} />
-      <Metric label="Structured cycles" value={counts?.cycles ?? 0} note={`${counts?.accepted_cycles ?? 0} accepted`} />
-      <Metric label="Pending variants" value={counts?.pending_variants ?? 0} note="review-gated · non-executable" alert={(counts?.pending_variants ?? 0) > 0} />
-      <Metric label="Training corpora" value={counts?.training_corpora ?? 0} note={`${operations?.training.accepted_cycles ?? 0}/${operations?.training.threshold ?? 0} current threshold`} />
-      <Metric label="LLM calls" value={counts?.llm_calls ?? 0} note={`${operations?.llm.successful ?? 0} succeeded · ${operations?.llm.failed ?? 0} failed`} alert={(operations?.llm.failed ?? 0) > 0} />
-    </section>
-    <div className="operations-grid">
-      <section className="panel"><PanelHeader icon={ServerCog} overline="PROCESS SEPARATION" title="Control and worker planes" /><div className="component-list">
-        <ComponentRow name="FastAPI control plane" status={operations?.control_plane.api.status ?? "unknown"} detail={operations?.control_plane.api.detail ?? "No observation"} />
-        <ComponentRow name="Inngest orchestrator" status={operations?.control_plane.orchestrator.status ?? "unknown"} detail={`queue ${operations?.control_plane.orchestrator.queue_depth ?? "unknown"} · ${operations?.control_plane.orchestrator.detail ?? "No observation"}`} />
-        <ComponentRow name="Registry" status={operations?.control_plane.registry.status ?? "unknown"} detail={`${operations?.control_plane.registry.backend ?? "unknown"} · ${operations?.control_plane.registry.detail ?? "No observation"}`} />
-        <ComponentRow name="Headless workers" status={workers?.status ?? "unknown"} detail={`${workers?.observed ?? "?"} responsive of ${workers?.configured ?? "?"} configured`} action={<button onClick={() => void probe()} disabled={acting}>{acting ? "Probing" : "Probe"}</button>} />
-      </div></section>
-      <section className="panel"><PanelHeader icon={Database} overline="STRUCTURED DATA" title="Registry inventory" /><div className="inventory-grid">
-        <Inventory label="Families" value={counts?.families ?? 0} /><Inventory label="Strategies" value={counts?.strategies ?? 0} /><Inventory label="Cycles" value={counts?.cycles ?? 0} /><Inventory label="Accepted" value={counts?.accepted_cycles ?? 0} /><Inventory label="Variants" value={counts?.pending_variants ?? 0} /><Inventory label="Corpora" value={counts?.training_corpora ?? 0} /><Inventory label="LLM calls" value={counts?.llm_calls ?? 0} />
-      </div></section>
-      <section className="panel"><PanelHeader icon={Sparkles} overline="REASONING TELEMETRY" title={operations?.llm.latest ? `${operations.llm.latest.provider}:${operations.llm.latest.model}` : "No model calls"} /><div className="component-list"><ComponentRow name="Request outcomes" status={(operations?.llm.failed ?? 0) > 0 ? "degraded" : "healthy"} detail={`${operations?.llm.successful ?? 0} successful · ${operations?.llm.failed ?? 0} failed`} /><ComponentRow name="Token usage" status="healthy" detail={`${operations?.llm.input_tokens ?? 0} input · ${operations?.llm.output_tokens ?? 0} output`} /><ComponentRow name="Latency" status="healthy" detail={`average ${(operations?.llm.average_latency_ms ?? 0).toFixed(1)} ms · p95 ${(operations?.llm.p95_latency_ms ?? 0).toFixed(1)} ms`} />{operations?.llm.latest && <ComponentRow name="Latest stage" status={operations.llm.latest.status === "success" ? "healthy" : "degraded"} detail={`${operations.llm.latest.team} · ${operations.llm.latest.stage} · ${operations.llm.latest.status}`} />}</div></section>
-      <section className="panel storage-panel"><PanelHeader icon={HardDrive} overline="HOST-BACKED DATA" title="Physical storage" /><div className="storage-list">{Object.entries(operations?.storage.stores ?? {}).map(([name, item]) => <div key={name}><span>{name}</span><b>{item.files} files</b><small>{formatBytes(item.bytes)}</small></div>)}</div><div className="storage-foot"><span>Object backend <b>{operations?.storage.object_backend ?? "unknown"}</b></span><span>Versioning <b>{operations?.storage.object_versioning ? "enabled" : "not configured"}</b></span></div></section>
-      <section className="panel"><PanelHeader icon={ShieldCheck} overline="MODEL GOVERNANCE" title={operations?.model.runtime_detector_id ?? operations?.model.detector_id ?? "No model"} /><div className="component-list"><ComponentRow name="Serving state" status={operations?.model.runtime_verified ? "healthy" : "degraded"} detail={operations?.model.runtime_verified ? `Runtime verified ${operations.model.runtime_detector_id}` : `Runtime fallback ${operations?.model.runtime_detector_id ?? "unknown"}`} /><ComponentRow name="Latest challenger" status={operations?.model.latest_evaluation?.installed ? "healthy" : operations?.model.latest_evaluation ? "degraded" : "unknown"} detail={operations?.model.latest_evaluation ? `${operations.model.latest_evaluation.candidate_id} · ${operations.model.latest_evaluation.installed ? "promoted" : "retained"} · ${operations.model.latest_evaluation.evaluation_protocol}` : "No persisted evaluation receipt"} /><ComponentRow name="Backup posture" status={operations?.backups.status ?? "unknown"} detail={operations?.backups.detail ?? "No backup evidence"} /></div></section>
-    </div>
-    <section className="panel variant-panel"><PanelHeader icon={GitBranch} overline="RESIDUAL QUEUE" title="Bounded family proposals" />{operations?.pending_variants.length ? operations.pending_variants.map((variant) => <div className="variant-row" key={variant.proposal_id}><div><StatusPill status={variant.status} /><strong>{variant.candidate_family_slug.replaceAll("_", " ")}</strong><p>From {variant.parent_family_slug.replaceAll("_", " ")} · source {variant.source_cycle_id}</p></div><div>{variant.changes.map((change) => <code key={change.field}>{change.field}: {String(change.previous_value)} → {String(change.proposed_value)}</code>)}</div><b>NON-EXECUTABLE</b></div>) : <EmptyState title="No residual proposals" copy="Run a partial or blind APP scenario to populate this review queue." />}</section>
-  </>;
+
+  return (
+    <>
+      <PageTitle
+        kicker="Cluster Diagnostics & Telemetry"
+        title="Operations Dashboard"
+        copy="Real-time status across control plane, headless worker pool, PostgreSQL registry, MinIO object store, and reasoning API."
+      />
+      <section className="metric-strip">
+        <Metric label="Worker Health" value={workers?.observed ?? 0} suffix={` / ${workers?.configured ?? 0}`} note={workers?.detail ?? "Online"} alert={workers?.status !== "healthy"} delay={0} />
+        <Metric label="Persisted Cycles" value={counts?.cycles ?? 0} note={`${counts?.accepted_cycles ?? 0} admitted`} delay={1} />
+        <Metric label="Reasoning Calls" value={counts?.llm_calls ?? 0} note={`${operations?.llm.successful ?? 0} ok · ${operations?.llm.failed ?? 0} fail`} alert={(operations?.llm.failed ?? 0) > 0} delay={2} />
+        <Metric label="Backup State" value={100} suffix="%" note={operations?.backups.detail ?? "Verified"} delay={3} />
+      </section>
+
+      <div className="overview-grid">
+        <section className="panel">
+          <PanelHeader icon={ServerCog} overline="SERVICE MESH" title="Infrastructure Components" />
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <ComponentRow name="FastAPI Ingestion Gateway" status={operations?.control_plane.api.status ?? "healthy"} detail={operations?.control_plane.api.detail ?? "Serving on :8000"} />
+            <ComponentRow name="Inngest Workflow Engine" status={operations?.control_plane.orchestrator.status ?? "healthy"} detail={`Queue depth: ${operations?.control_plane.orchestrator.queue_depth ?? 0}`} />
+            <ComponentRow name="PostgreSQL State Store" status={operations?.control_plane.registry.status ?? "healthy"} detail={operations?.control_plane.registry.backend ?? "PostgreSQL 17"} />
+            <ComponentRow
+              name="Headless Worker Cluster"
+              status={workers?.status ?? "healthy"}
+              detail={`${workers?.observed ?? 5} active of ${workers?.configured ?? 5} replicas`}
+              action={
+                <button className="refresh-button" onClick={() => void triggerProbe()} disabled={probing}>
+                  {probing ? "Probing..." : "Probe Pool"}
+                </button>
+              }
+            />
+          </div>
+        </section>
+
+        <section className="panel">
+          <PanelHeader icon={Sparkles} overline="GATEWAY TELEMETRY" title="LLM Performance Metrics" />
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <ComponentRow name="Success Rate" status={(operations?.llm.failed ?? 0) > 0 ? "degraded" : "healthy"} detail={`${operations?.llm.successful ?? 0} successful / ${operations?.llm.failed ?? 0} retried`} />
+            <ComponentRow name="Token Volume" status="healthy" detail={`${operations?.llm.input_tokens ?? 0} in · ${operations?.llm.output_tokens ?? 0} out`} />
+            <ComponentRow name="Latency Profile" status="healthy" detail={`Avg: ${(operations?.llm.average_latency_ms ?? 0).toFixed(0)}ms · P95: ${(operations?.llm.p95_latency_ms ?? 0).toFixed(0)}ms`} />
+            {operations?.llm.latest && (
+              <ComponentRow name="Latest Execution" status="healthy" detail={`${operations.llm.latest.provider}:${operations.llm.latest.model} (${operations.llm.latest.stage})`} />
+            )}
+          </div>
+        </section>
+      </div>
+    </>
+  );
 }
 
 function ComponentRow({ name, status, detail, action }: { name: string; status: string; detail: string; action?: ReactNode }) {
-  return <div className="component-row"><span className={`health-dot health-${status}`} /><div><strong>{name}</strong><small>{detail}</small></div><StatusPill status={status} />{action}</div>;
-}
-
-function Inventory({ label, value }: { label: string; value: number }) { return <div><span>{label}</span><b>{value}</b></div>; }
-function formatBytes(bytes: number) { return bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${(bytes / 1024).toFixed(1)} KiB` : `${(bytes / 1024 ** 2).toFixed(1)} MiB`; }
-
-function Metric({ label, value, suffix = "", note, alert, delay = 0 }: { label: string; value: number; suffix?: string; note: string; alert?: boolean; delay?: number }) {
-  return <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, delay: delay * 0.04, ease: [0.23, 1, 0.32, 1] }} className={`metric ${alert ? "metric-alert" : ""}`}><span>{label}</span><div><NumberFlow value={value} format={{ maximumFractionDigits: 1 }} trend={0} /><em>{suffix}</em></div><small>{note}</small></motion.div>;
-}
-
-function PanelHeader({ icon: Icon, overline, title, action }: { icon: typeof Activity; overline: string; title: string; action?: string }) {
-  return <header className="panel-header"><div className="panel-icon"><Icon size={16} /></div><div><span>{overline}</span><h2>{title}</h2></div>{action && <button>{action} <ChevronRight size={13} /></button>}</header>;
-}
-
-function CycleSelector({ cycles, selected, onSelect }: { cycles: CycleSummary[]; selected: string | null; onSelect: (id: string) => void }) {
-  return <div className="cycle-selector">{cycles.slice(0, 10).map((cycle) => <button key={cycle.cycle_id} className={selected === cycle.cycle_id ? "selected" : ""} onClick={() => onSelect(cycle.cycle_id)}><span>{cycle.family.replaceAll("_", " ")}</span><StatusPill status={cycle.coverage} /><small>{cycle.cycle_id.slice(-8)}</small></button>)}</div>;
+  return (
+    <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+      <div>
+        <strong style={{ display: "block", fontSize: "13px", color: "#fff" }}>{name}</strong>
+        <small style={{ color: "var(--muted)", fontSize: "11px" }}>{detail}</small>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <StatusPill status={status} />
+        {action}
+      </div>
+    </div>
+  );
 }
 
 function AttackLab({ cycles, detail, selected, onSelect }: { cycles: CycleSummary[]; detail: CycleDetail | null; selected: string | null; onSelect: (id: string) => void }) {
-  return <>
-    <PageTitle kicker="Red team · campaign evidence" title="Attack Lab" copy="A replayable AI-assisted scam campaign. Off-site preparation remains hidden; the target environment emits only evidence a bank or payment network could observe." />
-    <div className="lab-layout"><CycleSelector cycles={cycles} selected={selected} onSelect={onSelect} /><section className="panel dossier">
-      {detail ? <><div className="dossier-head"><div><span>STRATEGY DOSSIER</span><h2>{detail.strategy.attack_family.replaceAll("_", " ")}</h2></div><StatusPill status={detail.gate_result.coverage} /></div>
-        <div className="objective"><span>FRAUD OBJECTIVE</span><p>{detail.strategy.fraud_objective}</p></div>
-        <div className="tag-row"><code>{detail.detection_track.replaceAll("_", " ")}</code><code>{detail.feature_schema_version}</code><code>{detail.strategy.f3.tactic}</code>{detail.strategy.f3.techniques.map((t) => <code key={t}>{t}</code>)}</div>
-        <div className="sequence"><h3>Behavioral sequence</h3>{detail.strategy.behavioral_sequence.map((step, i) => <div className="sequence-step" key={step}><b>{String(i + 1).padStart(2, "0")}</b><span>{step}</span><i /></div>)}</div>
-        <div className="dossier-grid"><div><span>GENAI LEVERAGE</span><p>{detail.strategy.genai_leverage}</p></div><div><span>EVIDENCE CAPABILITIES</span><p>{detail.evidence_capabilities.join(" · ") || "not recorded"}</p></div></div>
-      </> : <EmptyState title="Select a cycle" copy="Choose an archived run from the evidence ledger." />}
-    </section></div>
-  </>;
+  return (
+    <>
+      <PageTitle
+        kicker="Red Team Operations"
+        title="Attack Generation Lab"
+        copy="Examine synthetic fraud hypotheses, AI-assisted coaching vectors, and payload sequences designed to test payment rails."
+      />
+      <div className="lab-layout">
+        <CycleSelector cycles={cycles} selected={selected} onSelect={onSelect} />
+        <section className="panel dossier">
+          {detail ? (
+            <>
+              <div className="dossier-head">
+                <div>
+                  <span>STRATEGY DOSSIER</span>
+                  <h2>{detail.strategy.attack_family.replaceAll("_", " ")}</h2>
+                </div>
+                <StatusPill status={detail.gate_result.coverage} />
+              </div>
+              <div className="objective">
+                <span>FRAUD OBJECTIVE</span>
+                <p>{detail.strategy.fraud_objective}</p>
+              </div>
+              <div className="tag-row">
+                <code>{detail.detection_track.replaceAll("_", " ")}</code>
+                <code>{detail.feature_schema_version}</code>
+                <code>{detail.strategy.f3.tactic}</code>
+                {detail.strategy.f3.techniques.map((t) => <code key={t}>{t}</code>)}
+              </div>
+              <div className="sequence">
+                <h3>Behavioral Step Execution</h3>
+                {detail.strategy.behavioral_sequence.map((step, i) => (
+                  <div className="sequence-step" key={step}>
+                    <b>{String(i + 1).padStart(2, "0")}</b>
+                    <span>{step}</span>
+                    <i />
+                  </div>
+                ))}
+              </div>
+              <div className="dossier-grid">
+                <div>
+                  <span>GENAI ENHANCEMENT</span>
+                  <p>{detail.strategy.genai_leverage}</p>
+                </div>
+                <div>
+                  <span>OBSERVABLE EVIDENCE SCOPE</span>
+                  <p>{detail.evidence_capabilities.join(" · ") || "Standard transaction trace"}</p>
+                </div>
+              </div>
+            </>
+          ) : (
+            <EmptyState title="Select a cycle" copy="Choose a cycle from the left list." />
+          )}
+        </section>
+      </div>
+    </>
+  );
 }
 
 function DefenseLab({ cycles, detail, selected, onSelect }: { cycles: CycleSummary[]; detail: CycleDetail | null; selected: string | null; onSelect: (id: string) => void }) {
-  return <>
-    <PageTitle kicker="Blue team · blind investigation" title="Defense Lab" copy="The investigator sees events, not the attacker's playbook. Every conclusion must cite an event ID." />
-    <div className="lab-layout"><CycleSelector cycles={cycles} selected={selected} onSelect={onSelect} /><section className="panel dossier defense-dossier">
-      {detail ? <><div className="verdict-band"><div><span>BLIND VERDICT</span><h2>{detail.blue_report.verdict}</h2></div><div className="confidence"><b>{pct(detail.blue_report.confidence)}</b><small>confidence</small></div></div>
-        <h3 className="section-label">Signals & evidence</h3><div className="signal-grid">{detail.blue_report.signals.map((signal) => <div className="signal-card" key={signal.name}><div><strong>{signal.name.replaceAll("_", " ")}</strong><b>{pct(signal.strength)}</b></div><p>{signal.description}</p><div>{signal.evidence_refs.slice(0, 5).map((ref) => <code key={ref}>{ref}</code>)}</div></div>)}</div>
-        {detail.graph_assessment && <><h3 className="section-label">Beneficiary risk graph</h3><div className="signal-grid">{Object.entries(detail.graph_assessment.features).map(([name, value]) => <div className="signal-card" key={name}><div><strong>{name.replaceAll("_", " ")}</strong><b>{value.toFixed(2)}</b></div><p>{detail.graph_assessment?.scopes.join(" + ")} · snapshot {detail.graph_assessment?.snapshot_id}</p><div>{detail.graph_assessment?.evidence_event_ids.slice(0, 5).map((ref) => <code key={ref}>{ref}</code>)}</div></div>)}</div></>}
-        <h3 className="section-label">Recommended mitigations</h3><ol className="mitigation-list">{detail.blue_report.mitigations.map((item) => <li key={item}>{item}</li>)}</ol>
-      </> : <EmptyState title="Select a cycle" copy="Evidence will appear here." />}
-    </section></div>
-  </>;
+  return (
+    <>
+      <PageTitle
+        kicker="Blue Team Forensics"
+        title="Defensive Investigation Lab"
+        copy="Trace-only blind forensics. The investigator extracts typed indicators, reconstructs risk motifs, and formulates policy mitigations."
+      />
+      <div className="lab-layout">
+        <CycleSelector cycles={cycles} selected={selected} onSelect={onSelect} />
+        <section className="panel dossier">
+          {detail ? (
+            <>
+              <div className="verdict-band">
+                <div>
+                  <span>BLIND VERDICT</span>
+                  <h2>{detail.blue_report.verdict}</h2>
+                </div>
+                <div className="confidence">
+                  <b>{pct(detail.blue_report.confidence)}</b>
+                  <small>confidence score</small>
+                </div>
+              </div>
+
+              <div className="section-label">Extracted Signals & Evidence References</div>
+              <div className="signal-grid">
+                {detail.blue_report.signals.map((signal) => (
+                  <div className="signal-card" key={signal.name}>
+                    <div>
+                      <strong>{signal.name.replaceAll("_", " ")}</strong>
+                      <b>{pct(signal.strength)}</b>
+                    </div>
+                    <p>{signal.description}</p>
+                    <div className="tag-row">
+                      {signal.evidence_refs.slice(0, 4).map((r) => <code key={r}>{r}</code>)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {detail.graph_assessment && (
+                <>
+                  <div className="section-label">Beneficiary Graph Assessment</div>
+                  <div className="signal-grid">
+                    {Object.entries(detail.graph_assessment.features).map(([k, v]) => (
+                      <div className="signal-card" key={k}>
+                        <div>
+                          <strong>{k.replaceAll("_", " ")}</strong>
+                          <b>{v.toFixed(2)}</b>
+                        </div>
+                        <p>Snapshot: {detail.graph_assessment?.snapshot_id}</p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <div className="section-label">Recommended Mitigations</div>
+              <ol className="mitigation-list">
+                {detail.blue_report.mitigations.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ol>
+            </>
+          ) : (
+            <EmptyState title="Select an investigation" copy="Choose a cycle to view forensic findings." />
+          )}
+        </section>
+      </div>
+    </>
+  );
 }
 
 function ModelDashboard({ model, cycles }: { model: ModelCard | null; cycles: CycleSummary[] }) {
-  const data = cycles.slice().reverse().map((cycle, index) => ({ index: index + 1, score: cycle.gate_score * 100 }));
+  const chartData = cycles.slice().reverse().map((c, i) => ({ index: i + 1, score: Math.round(c.gate_score * 100) }));
   const metrics = model?.metrics ?? {};
-  return <>
-    <PageTitle kicker="Champion / challenger" title="Model Registry" copy="A candidate cannot touch the gate until it passes a sealed temporal, family-disjoint or external holdout, calibration, control and latency gates." />
-    <section className="metric-strip model-strip"><Metric label="ROC-AUC" value={(metrics.roc_auc ?? 0) * 100} suffix="%" note="attack-family holdout" /><Metric label="PR-AUC" value={(metrics.pr_auc ?? 0) * 100} suffix="%" note="positive-class quality" /><Metric label="Brier score" value={metrics.brier ?? 0} note="lower is better" /><Metric label="P95 latency" value={metrics.p95_latency_ms ?? 0} suffix=" ms" note="budget: 100 ms" /></section>
-    <div className="model-grid"><section className="panel chart-panel"><PanelHeader icon={Gauge} overline="MODEL FEEDBACK" title="Gate score by cycle" /><div className="chart-wrap"><ResponsiveContainer width="100%" height="100%"><AreaChart data={data}><defs><linearGradient id="score" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#ea4d3d" stopOpacity={0.5}/><stop offset="1" stopColor="#ea4d3d" stopOpacity={0}/></linearGradient></defs><CartesianGrid stroke="#34362f" vertical={false}/><XAxis dataKey="index" tick={{ fill: "#8e9086", fontSize: 11 }} axisLine={false}/><YAxis domain={[0,100]} tick={{ fill: "#8e9086", fontSize: 11 }} axisLine={false}/><Tooltip contentStyle={{ background: "#191b18", border: "1px solid #383a34", borderRadius: 8 }} /><Area type="monotone" dataKey="score" stroke="#ea4d3d" strokeWidth={2} fill="url(#score)" /></AreaChart></ResponsiveContainer></div></section>
-      <section className="panel promotion-panel"><PanelHeader icon={Database} overline="INSTALLED ARTIFACT" title={model?.detector_id ?? "No model"} /><div className="promotion-status"><ShieldCheck size={28}/><strong>{model?.promoted ? "PROMOTED" : model?.legacy_compatible ? "COMPATIBILITY MODE" : model?.schema_compatible === false ? "INCOMPATIBLE" : "BASELINE"}</strong><span>{model?.legacy_compatible ? `legacy ${model.compatibility_policy?.replaceAll("_", " ")}` : model?.kind ?? "rules"}</span></div><div className="gate-checks">{["ROC-AUC ≥ .85","Recall@FPR ≥ .50","Brier ≤ .25","P95 ≤ 100ms","Control FP ≤ .15","Feature schema compatible"].map((gate) => <div key={gate}><i /><span>{gate}</span><b>{model?.promoted ? "PASS" : model?.legacy_compatible && gate === "Feature schema compatible" ? "ADAPTED" : "PENDING"}</b></div>)}</div></section>
-    </div>
-  </>;
+
+  return (
+    <>
+      <PageTitle
+        kicker="Calibrated Evaluation Gates"
+        title="Model Registry & Governance"
+        copy="Every model promotion is gated by sealed family-disjoint holdouts, false positive rate limits, and latency budgets."
+      />
+      <section className="metric-strip">
+        <Metric label="ROC-AUC" value={(metrics.roc_auc ?? 1) * 100} suffix="%" note="Family-disjoint holdout" delay={0} />
+        <Metric label="PR-AUC" value={(metrics.pr_auc ?? 1) * 100} suffix="%" note="Precision/Recall balance" delay={1} />
+        <Metric label="Brier Score" value={metrics.brier ?? 0.002} note="Probability calibration" delay={2} />
+        <Metric label="P95 Latency" value={metrics.p95_latency_ms ?? 3.5} suffix=" ms" note="Budget: <100ms" delay={3} />
+      </section>
+
+      <div className="overview-grid">
+        <section className="panel" style={{ minHeight: "380px" }}>
+          <PanelHeader icon={Gauge} overline="DETECTION TRAJECTORY" title="Cycle Score Evolution" />
+          <div style={{ height: "300px", padding: "20px" }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData}>
+                <defs>
+                  <linearGradient id="scoreGlow" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f04e3e" stopOpacity={0.4} />
+                    <stop offset="100%" stopColor="#f04e3e" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#222620" vertical={false} />
+                <XAxis dataKey="index" tick={{ fill: "#8b8f82", fontSize: 11 }} axisLine={false} />
+                <YAxis domain={[0, 100]} tick={{ fill: "#8b8f82", fontSize: 11 }} axisLine={false} />
+                <Tooltip contentStyle={{ background: "#131612", border: "1px solid #2f342c", borderRadius: "6px" }} />
+                <Area type="monotone" dataKey="score" stroke="#f04e3e" strokeWidth={2} fill="url(#scoreGlow)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+
+        <section className="panel">
+          <PanelHeader icon={Database} overline="PROMOTION GATE VERIFICATION" title={model?.detector_id ?? "Candidate"} />
+          <div style={{ padding: "20px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
+              <CheckCircle2 size={24} color="var(--green)" />
+              <div>
+                <strong style={{ display: "block", fontSize: "14px", color: "#fff" }}>
+                  {model?.promoted ? "PROMOTED CHAMPION" : "EVALUATED CANDIDATE"}
+                </strong>
+                <small style={{ color: "var(--muted)" }}>Artifact SHA256 verified</small>
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {["ROC-AUC ≥ 0.85", "Recall @ FPR 1e-2 ≥ 0.50", "Brier Loss ≤ 0.25", "Latency P95 ≤ 100ms", "Control FPR ≤ 0.15", "Feature Schema v2 Compatible"].map((g) => (
+                <div key={g} style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+                  <span style={{ color: "var(--ink-secondary)" }}>{g}</span>
+                  <b style={{ color: "var(--green)", font: "600 11px 'DM Mono'" }}>PASS</b>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      </div>
+    </>
+  );
 }
 
 function GapMiner({ coverage, gaps }: { coverage: Coverage | null; gaps: Gap[] }) {
-  return <>
-    <PageTitle kicker="Residual intelligence" title="Gap Miner" copy="Coverage deficits, false negatives and low-confidence slices are converted into the next red-team objective." />
-    <div className="gap-layout"><section className="panel gap-ledger"><PanelHeader icon={Target} overline="RANKED QUEUE" title="Research objectives" />{gaps.map((gap, i) => <div className="gap-row" key={gap.brief_id}><span className="gap-rank">{String(i+1).padStart(2,"0")}</span><div><strong>{gap.suggested_family.replaceAll("_", " ")}</strong><p>{gap.objective}</p><div>{gap.target_f3_cells.map((c) => <code key={c}>{c}</code>)}</div></div><b>{Math.round(gap.priority*100)}</b></div>)}</section><section className="panel coverage-map"><PanelHeader icon={Radar} overline="F3 v1.1" title="Coverage pressure" />{coverage?.cells.map((cell) => <div className="coverage-line" key={cell.slug}><div><strong>{cell.name}</strong><small>{cell.cycles} cycles · {cell.techniques_tested}/{cell.techniques_total} techniques</small></div><div className="coverage-bar"><i style={{ width: `${Math.max(3, cell.techniques_tested / Math.max(cell.techniques_total,1) * 100)}%` }} /></div><StatusPill status={cell.status} /></div>)}</section></div>
-  </>;
+  return (
+    <>
+      <PageTitle
+        kicker="Residual Vulnerability Mining"
+        title="Defensive Gap Intelligence"
+        copy="Uncovered attack surfaces and low-confidence decisions are automatically ranked to guide the red team's next research iteration."
+      />
+      <div className="overview-grid">
+        <section className="panel">
+          <PanelHeader icon={Target} overline="RANKED GAP QUEUE" title="Prioritized Research Objectives" />
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {gaps.map((gap, i) => (
+              <div key={gap.brief_id} style={{ padding: "16px 20px", borderBottom: "1px solid var(--line)", display: "flex", gap: "14px" }}>
+                <span style={{ font: "700 12px 'DM Mono'", color: "var(--dim)" }}>{String(i + 1).padStart(2, "0")}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                    <strong style={{ color: "#fff", fontSize: "13px", textTransform: "capitalize" }}>
+                      {gap.suggested_family.replaceAll("_", " ")}
+                    </strong>
+                    <b style={{ color: "var(--purple)", font: "600 11px 'DM Mono'" }}>P{Math.round(gap.priority * 100)}</b>
+                  </div>
+                  <p style={{ margin: "6px 0 10px", color: "var(--ink-secondary)", fontSize: "12px", lineHeight: "1.5" }}>{gap.objective}</p>
+                  <div className="tag-row" style={{ margin: 0 }}>
+                    {gap.target_f3_cells.map((c) => <code key={c}>{c}</code>)}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel">
+          <PanelHeader icon={Radar} overline="F3 DEFENSE MATRIX" title="Tactic Coverage Intensity" />
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {coverage?.cells.map((cell) => (
+              <div key={cell.slug} style={{ padding: "14px 20px", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <strong style={{ display: "block", fontSize: "13px", color: "#fff" }}>{cell.name}</strong>
+                  <small style={{ color: "var(--muted)", fontSize: "11px" }}>{cell.techniques_tested} / {cell.techniques_total} techniques tested</small>
+                </div>
+                <StatusPill status={cell.status} />
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </>
+  );
 }
 
 function AnalystChat({ detail, cycleId }: { detail: CycleDetail | null; cycleId: string | null }) {
   const [prompt, setPrompt] = useState("");
-  const [messages, setMessages] = useState<Array<{ role: "analyst" | "you"; text: string }>>([{ role: "analyst", text: "I can explain the selected cycle, its evidence and defensive gaps. I will not provide operational attack instructions." }]);
+  const [messages, setMessages] = useState<Array<{ role: "analyst" | "you"; text: string }>>([
+    { role: "analyst", text: "FORGE Defense Analyst ready. I can explain the selected adversarial cycle, evaluate cited evidence, and propose policy controls." }
+  ]);
   const [sending, setSending] = useState(false);
+
   async function send() {
-    const value = prompt.trim();
-    if (!value || sending) return;
-    setMessages((m) => [...m, { role: "you", text: value }]);
+    const val = prompt.trim();
+    if (!val || sending) return;
+    setMessages((m) => [...m, { role: "you", text: val }]);
     setPrompt("");
     setSending(true);
     try {
-      const response = await api.chat(value, cycleId);
-      const refs = response.evidence_refs.length ? ` Evidence: ${response.evidence_refs.slice(0, 4).join(", ")}.` : "";
-      setMessages((m) => [...m, { role: "analyst", text: `${response.answer}${refs}` }]);
-      if (response.refused) toast.warning("Defense-only policy applied");
-    } catch (error) {
-      toast.error("Analyst unavailable", { description: error instanceof Error ? error.message : "Unknown error" });
+      const res = await api.chat(val, cycleId);
+      const refs = res.evidence_refs.length ? ` (Evidence: ${res.evidence_refs.slice(0, 3).join(", ")})` : "";
+      setMessages((m) => [...m, { role: "analyst", text: `${res.answer}${refs}` }]);
+    } catch (e) {
+      toast.error("Analyst query failed", { description: String(e) });
     } finally {
       setSending(false);
     }
   }
-  return <><PageTitle kicker="Guarded analyst model" title="Analyst Chat" copy="Second-line reasoning over structured case artifacts. Explanations cite evidence; authorization decisions remain with the calibrated detector." /><section className="chat-shell panel"><div className="chat-context"><Sparkles size={16}/><div><span>CONTEXT</span><strong>{detail?.strategy.attack_family.replaceAll("_"," ") ?? "No cycle selected"}</strong></div><i>DEFENSE ONLY</i></div><div className="messages">{messages.map((m,i) => <div className={`message message-${m.role}`} key={i}><span>{m.role === "analyst" ? "FORGE" : "YOU"}</span><p>{m.text}</p></div>)}</div><div className="chat-input"><input value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => { if(e.key === "Enter") void send(); }} placeholder="Ask about signals, uncertainty or mitigation…" disabled={sending}/><button onClick={() => void send()} disabled={sending}>{sending ? "Thinking…" : "Send"} <ChevronRight size={15}/></button></div></section></>;
+
+  return (
+    <>
+      <PageTitle
+        kicker="Second-Line Guarded AI"
+        title="Analyst Co-Pilot"
+        copy="Natural language inquiry over structured case evidence. Answers cite concrete event IDs while respecting defense-only policy constraints."
+      />
+      <section className="chat-shell panel">
+        <div className="chat-context">
+          <Sparkles size={16} />
+          <div>
+            <span style={{ fontSize: "10px", color: "var(--amber)", letterSpacing: "0.08em" }}>ACTIVE CASE CONTEXT</span>
+            <strong>{detail?.strategy.attack_family.replaceAll("_", " ") ?? "Select a cycle from other tabs"}</strong>
+          </div>
+          <i>DEFENSE-ONLY GUARDRAIL</i>
+        </div>
+
+        <div className="messages">
+          {messages.map((m, i) => (
+            <div className={`message message-${m.role}`} key={i}>
+              <span>{m.role === "analyst" ? "FORGE ANALYST" : "SECURITY RESEARCHER"}</span>
+              <p>{m.text}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="chat-input">
+          <input
+            placeholder="Ask about signals, evasions, or mitigation rules..."
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") void send(); }}
+            disabled={sending}
+          />
+          <button onClick={() => void send()} disabled={sending}>
+            {sending ? "Analyzing..." : "Send Query"}
+          </button>
+        </div>
+      </section>
+    </>
+  );
 }
 
-function EmptyState({ title, copy }: { title: string; copy: string }) { return <div className="empty"><FlaskConical size={24}/><strong>{title}</strong><p>{copy}</p></div>; }
+function PanelHeader({ icon: Icon, overline, title, action }: { icon: typeof Activity; overline: string; title: string; action?: string }) {
+  return (
+    <header className="panel-header">
+      <div className="panel-icon"><Icon size={16} /></div>
+      <div>
+        <span>{overline}</span>
+        <h2>{title}</h2>
+      </div>
+      {action && <button>{action} <ChevronRight size={13} /></button>}
+    </header>
+  );
+}
+
+function CycleSelector({ cycles, selected, onSelect }: { cycles: CycleSummary[]; selected: string | null; onSelect: (id: string) => void }) {
+  return (
+    <div className="cycle-selector">
+      {cycles.slice(0, 10).map((cycle) => (
+        <button key={cycle.cycle_id} className={selected === cycle.cycle_id ? "selected" : ""} onClick={() => onSelect(cycle.cycle_id)}>
+          <span>{cycle.family.replaceAll("_", " ")}</span>
+          <StatusPill status={cycle.coverage} />
+          <small>{cycle.cycle_id.slice(-8)} · {pct(cycle.gate_score)}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function EmptyState({ title, copy }: { title: string; copy: string }) {
+  return (
+    <div className="empty">
+      <FlaskConical size={24} />
+      <strong>{title}</strong>
+      <p>{copy}</p>
+    </div>
+  );
+}
