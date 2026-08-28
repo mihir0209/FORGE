@@ -34,12 +34,23 @@ class LocalRunStateStore:
     def load(self, run_id: str) -> RunSupervisorState | None:
         if not self.path.exists():
             return None
-        state = RunSupervisorState.model_validate_json(self.path.read_text())
+        # best-effort file lock to avoid lost update on shared mount
+        try:
+            import fcntl  # type: ignore
+
+            with self.path.open("r") as f:
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                data = f.read()
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            state = RunSupervisorState.model_validate_json(data)
+        except ImportError:
+            state = RunSupervisorState.model_validate_json(self.path.read_text())
         return state if state.run_id == run_id else None
 
     def save(self, state: RunSupervisorState) -> None:
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(state.model_dump_json(indent=2))
+        # atomic replace; callers with Postgres store are safe, local store warns on multi-worker
         tmp.replace(self.path)
 
 
@@ -129,6 +140,8 @@ class RunSupervisor:
             return False
         if cycle_key in state.admitted_cycle_ids:
             return True
+        if self.config.queue_capacity <= 0:
+            raise ValueError("queue_capacity must be > 0")
         queue_ratio = queue_depth / self.config.queue_capacity
         allowed = (
             state.state == RunState.RUNNING
@@ -202,7 +215,7 @@ class RunSupervisor:
                 "version": state.version + 1,
                 "active_cycles": max(0, state.active_cycles - 1),
                 "completed_cycles": state.completed_cycles + 1,
-                "storage_bytes": max(state.storage_bytes, actual_storage_bytes),
+                "storage_bytes": max(0, state.storage_bytes + actual_storage_bytes),
                 "active_cycle_ids": [item for item in state.active_cycle_ids if item != cycle_key],
                 "completed_cycle_ids": [*state.completed_cycle_ids, cycle_key],
             }
@@ -251,19 +264,25 @@ class RunSupervisor:
 
     def finalize(self, kind_roots: dict[str, Path]) -> ArtifactManifest:
         state = self.load_required()
-        if state.state not in {RunState.FINALIZING, RunState.DRAINING}:
-            raise ValueError(f"cannot finalize from {state.state}")
+        if state.state != RunState.FINALIZING:
+            raise ValueError(f"cannot finalize from {state.state} - must be FINALIZING (drain first)")
         entries: list[ManifestEntry] = []
         for kind, root in sorted(kind_roots.items()):
             if not root.exists():
                 continue
             for path in sorted(p for p in root.rglob("*") if p.is_file()):
-                data = path.read_bytes()
+                # streaming hash to avoid OOM on large artifacts
+                h = hashlib.sha256()
+                size = 0
+                with path.open("rb") as f:
+                    for chunk in iter(lambda: f.read(8192), b""):
+                        h.update(chunk)
+                        size += len(chunk)
                 entries.append(
                     ManifestEntry(
                         ref=str(path),
-                        sha256=hashlib.sha256(data).hexdigest(),
-                        byte_size=len(data),
+                        sha256=h.hexdigest(),
+                        byte_size=size,
                         kind=kind,
                     )
                 )

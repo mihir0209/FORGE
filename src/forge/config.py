@@ -66,11 +66,30 @@ def load_env_file() -> None:
     path = _repo_root() / ".env"
     if not path.exists():
         return
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, _, value = line.partition("=")
-            os.environ.setdefault(key.strip(), value.strip())
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        # handle `export KEY=val`
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        # strip inline comment not inside quotes
+        if value and not (value.startswith('"') or value.startswith("'")):
+            if " #" in value:
+                value = value.split(" #", 1)[0].strip()
+            elif "#" in value and value.count("#") == 1 and not value.startswith("#"):
+                # naive inline # handling
+                pass
+        # strip surrounding quotes
+        if len(value) >= 2 and ((value[0] == '"' and value[-1] == '"') or (value[0] == "'" and value[-1] == "'")):
+            value = value[1:-1]
+        if key:
+            os.environ.setdefault(key, value)
 
 
 @lru_cache(maxsize=1)

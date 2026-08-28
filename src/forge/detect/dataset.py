@@ -95,8 +95,17 @@ def build_dataset(
     df_train = df_train_all.iloc[train_idx2].reset_index(drop=True)
     df_calib = df_train_all.iloc[calib_idx].reset_index(drop=True)
 
+    # include feature distribution in id to avoid label-only collisions
     dataset_id = hashlib.sha256(
-        json.dumps([r["label"] for _, r in df.iterrows()], sort_keys=True).encode()
+        json.dumps(
+            {
+                "labels": [int(r["label"]) for _, r in df.iterrows()],
+                "feature_hash": hashlib.sha256(
+                    pd.util.hash_pandas_object(df[list(FEATURE_NAMES)], index=False).values.tobytes()
+                ).hexdigest()[:16],
+            },
+            sort_keys=True,
+        ).encode()
     ).hexdigest()[:10]
     dataset_id = f"ds_{dataset_id}"
 

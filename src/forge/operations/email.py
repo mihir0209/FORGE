@@ -34,6 +34,10 @@ class EmailNotifier:
         path = self.outbox / f"{digest}.eml"
         if path.exists():
             return path
+        # validate SMTP config before persisting to avoid ghost outbox on KeyError
+        host = os.environ.get("SMTP_HOST")
+        if not host and not dry_run:
+            raise ValueError("SMTP_HOST not configured")
         sender = os.environ.get("SMTP_FROM", "forge@localhost")
         recipient = os.environ.get("SMTP_TO", "operator@localhost")
         message = EmailMessage()
@@ -42,7 +46,9 @@ class EmailNotifier:
         message["To"] = recipient
         message["Message-ID"] = f"<{digest}@forge.local>"
         message.set_content(body)
-        path.write_bytes(bytes(message))
+        tmp = path.with_suffix(".tmp")
+        tmp.write_bytes(bytes(message))
+        tmp.replace(path)
         if dry_run:
             return path
 

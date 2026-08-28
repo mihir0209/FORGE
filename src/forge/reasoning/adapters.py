@@ -83,8 +83,14 @@ class PydanticAIClient:
             else:
                 # Inngest executes sync stage callbacks on its asyncio thread.
                 # Pydantic AI's sync facade needs a thread without a running loop.
+                # Use timeout to avoid hanging worker thread forever.
                 with ThreadPoolExecutor(max_workers=1) as executor:
-                    result = executor.submit(agent.run_sync, user).result()
+                    fut = executor.submit(agent.run_sync, user)
+                    try:
+                        result = fut.result(timeout=120)
+                    except TimeoutError as exc:
+                        fut.cancel()
+                        raise ProviderDown(f"{self._model}: timeout after 120s") from exc
         except (ValidationError, CoreValidationError) as exc:
             self._record(call_id, started_at, started, schema, "schema_violation", type(exc).__name__)
             raise SchemaViolation(f"{schema.__name__}: {exc}") from exc
