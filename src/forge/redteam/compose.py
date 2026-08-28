@@ -69,10 +69,11 @@ def compose(
 
 
 def _to_spec(draft: DraftStrategy, *, strategy_id: str, provider: str, model: str) -> StrategySpec:
+    clean_family = draft.attack_family.lower().strip().replace("-", "_")
     return StrategySpec(
         strategy_id=strategy_id,
         fraud_objective=draft.fraud_objective,
-        attack_family=draft.attack_family,
+        attack_family=clean_family,
         f3=F3Mapping(tactic=draft.f3_tactic, techniques=draft.f3_techniques),
         rail=draft.rail,
         channel=draft.channel,
@@ -93,12 +94,12 @@ def _to_spec(draft: DraftStrategy, *, strategy_id: str, provider: str, model: st
 # --------------------------------------------------------------------------
 
 _STAGE_HINTS: dict[LifecycleStage, tuple[str, ...]] = {
-    LifecycleStage.ONBOARDING: ("onboard", "account open", "register", "enroll"),
-    LifecycleStage.AUTHENTICATION: ("login", "log in", "auth", "session", "credential"),
-    LifecycleStage.PAYMENT: ("pay", "purchase", "transfer", "transaction"),
-    LifecycleStage.REFUND: ("refund", "chargeback", "dispute", "reversal"),
-    LifecycleStage.SETTLEMENT: ("settle", "settlement", "batch"),
-    LifecycleStage.CASH_OUT: ("cash-out", "cashout", "cash out", "withdraw", "atm"),
+    LifecycleStage.ONBOARDING: ("onboard", "account open", "register", "enroll", "create"),
+    LifecycleStage.AUTHENTICATION: ("login", "log in", "auth", "session", "credential", "proxy", "device", "cookie", "token"),
+    LifecycleStage.PAYMENT: ("pay", "purchase", "transfer", "transaction", "deposit", "bet", "wager", "send", "fund"),
+    LifecycleStage.REFUND: ("refund", "chargeback", "dispute", "reversal", "claim"),
+    LifecycleStage.SETTLEMENT: ("settle", "settlement", "batch", "clear"),
+    LifecycleStage.CASH_OUT: ("cash-out", "cashout", "cash out", "withdraw", "atm", "crypto", "wallet", "payout", "liquidat", "drain", "extract", "conversion", "off-ramp"),
 }
 
 
@@ -121,7 +122,9 @@ def validate(spec: StrategySpec) -> list[str]:
         if not any(h in text or h in stage.value for h in hints):
             problems.append(f"no behavioral hint supports lifecycle stage '{stage.value}'")
 
-    if not re.fullmatch(r"[a-z0-9_]{3,40}", spec.attack_family):
+    # normalize attack_family if LLM emitted hyphens or uppercase
+    family_cleaned = spec.attack_family.lower().replace("-", "_")
+    if not re.fullmatch(r"[a-z0-9_]{3,50}", family_cleaned):
         problems.append("attack_family must be snake_case identifier")
 
     if spec.safety_class == SafetyClass.RESTRICTED:
