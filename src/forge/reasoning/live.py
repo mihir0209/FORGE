@@ -30,6 +30,12 @@ def default_client(*, team: str = "unknown", stage: str = "complete") -> Reasoni
     clients: list[PydanticAIClient] = [
         PydanticAIClient(f"openai:{model}", telemetry=telemetry, team=team, stage=stage)
     ]
+    # fallback to mimo-v2.5 when primary is gpt-family (gateway often refuses gpt-family but serves mimo)
+    fallback_model = os.environ.get("FORGE_LLM_FALLBACK_MODEL", "mimo-v2.5")
+    if fallback_model and fallback_model != model:
+        clients.append(
+            PydanticAIClient(f"openai:{fallback_model}", telemetry=telemetry, team=team, stage=stage)
+        )
     if os.environ.get("ANTHROPIC_API_KEY"):
         clients.append(
             PydanticAIClient(
