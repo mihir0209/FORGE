@@ -32,6 +32,12 @@ from forge.device_fingerprint import (
     SessionDriftResult,
     DeviceVelocityResult,
 )
+from forge.velocity_limiter import (
+    VelocityRateLimiter,
+    AccountTier,
+    PaymentChannel,
+    RateLimitResult,
+)
 
 __version__ = "0.1.0"
 
@@ -61,4 +67,8 @@ __all__ = [
     "BotAnalysisResult",
     "SessionDriftResult",
     "DeviceVelocityResult",
+    "VelocityRateLimiter",
+    "AccountTier",
+    "PaymentChannel",
+    "RateLimitResult",
 ]
