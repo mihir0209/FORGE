@@ -99,7 +99,8 @@ FORGE/
 │       ├── contracts/           # Pydantic models (StrategySpec, Trace, GateResult, etc.)
 │       ├── cycle_runner.py      # Offline adversarial cycle runner
 │       ├── data_quality.py      # Trace audit, checksum, and LLM readiness checks
-│       ├── detect/              # Detectors, feature extraction, training & promotion
+│       ├── detect/              # Detectors, feature extraction, mule rings, training & promotion
+│       │   └── mule_ring.py     # Directed graph cycle detection & fan-out/fan-in funds pooling
 │       ├── families.py          # Fraud family definitions & immutable registry
 │       ├── feature_schema.py    # Multi-track versioned feature schema union
 │       ├── gapmine/             # F3 deficit ranking and gap brief mining
@@ -116,7 +117,9 @@ FORGE/
 │       ├── research_snapshots.py# Immutable snapshot store for research citations
 │       ├── risk_graph.py        # Beneficiary risk graph analysis
 │       ├── signals/             # Heuristic signal primitives (bursts, off-hours, etc.)
-│       ├── simulate/            # Synthetic payment world, merchant/customer engine
+│       ├── simulate/            # Synthetic payment world, generator, merchant/customer engine
+│       │   └── generator.py     # Micro-burst, geo-velocity spoof & smurfing generator
+│       ├── benchmark.py         # High-volume streaming benchmark runner
 │       └── storage.py           # Artifact persistence on disk (JSON payloads)
 ├── tests/                       # Complete pytest suite (unit, integration, contracts)
 ├── vendor/
@@ -197,6 +200,9 @@ uv run forge app-scam-cycle --seed 42 --variant safe_account
 
 # Run data audit
 uv run forge data-audit --run-id unsupervised
+
+# Run high-volume streaming benchmark
+uv run python src/forge/benchmark.py --volume 5000
 ```
 
 #### Option B: Full Web & API Stack

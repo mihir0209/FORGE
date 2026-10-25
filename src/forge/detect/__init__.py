@@ -12,6 +12,12 @@ from forge.contracts.contracts import (
     ObservedTraceView,
 )
 from forge.detect.base import Detector
+from forge.detect.mule_ring import (
+    MuleRing,
+    MuleRingDetectionResult,
+    MuleRingDetector,
+    MuleTransaction,
+)
 from forge.feature_schema import FEATURE_NAMES
 
 if TYPE_CHECKING:
@@ -146,4 +152,14 @@ def gate_score(view: ObservedTraceView, detector: Detector) -> GateResult:
     )
 
 
-__all__ = ["FEATURE_NAMES", "Detector", "RuleBaselineDetector", "gate_score", "trace_features"]
+__all__ = [
+    "FEATURE_NAMES",
+    "Detector",
+    "MuleRing",
+    "MuleRingDetectionResult",
+    "MuleRingDetector",
+    "MuleTransaction",
+    "RuleBaselineDetector",
+    "gate_score",
+    "trace_features",
+]

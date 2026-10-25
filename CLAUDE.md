@@ -55,6 +55,9 @@ uv run forge app-scam-cycle --seed 42 --variant safe_account
 # Run data audit
 uv run forge data-audit --run-id unsupervised
 
+# Run streaming transaction detection benchmark
+uv run python src/forge/benchmark.py --volume 5000
+
 # Launch API server (serves frontend at / and API at /api)
 FORGE_REGISTRY_PATH=data/registry.sqlite uv run uvicorn forge.api.app:app --port 8000
 
