@@ -67,6 +67,23 @@ from forge.chargeback_shield import (
     ChargebackPredictionResult,
     ChargebackShieldEngine,
 )
+from forge.geo_velocity import (
+    GeoLocation,
+    GeoEvent,
+    TravelAuditResult,
+    GeoVelocityDetector,
+    haversine_distance,
+)
+from forge.behavioral_biometrics import (
+    KeyEvent,
+    BiometricProfileResult,
+    KeystrokeDynamicsClassifier,
+)
+from forge.merchant_collusion import (
+    MerchantTransaction,
+    MerchantRiskReport,
+    MerchantCollusionSentinel,
+)
 
 __version__ = "0.1.0"
 
@@ -121,4 +138,15 @@ __all__ = [
     "DisputeRebuttalPacket",
     "ChargebackPredictionResult",
     "ChargebackShieldEngine",
+    "GeoLocation",
+    "GeoEvent",
+    "TravelAuditResult",
+    "GeoVelocityDetector",
+    "haversine_distance",
+    "KeyEvent",
+    "BiometricProfileResult",
+    "KeystrokeDynamicsClassifier",
+    "MerchantTransaction",
+    "MerchantRiskReport",
+    "MerchantCollusionSentinel",
 ]
