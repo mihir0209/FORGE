@@ -43,14 +43,31 @@ def save_artifact(kind: str, art_id: str, payload: dict[str, Any]) -> str:
 
 def load_artifact(ref: str) -> dict[str, Any]:
     # prevent traversal via ref
-    if ".." in ref or ref.startswith("/") or "\\" in ref:
+    if ".." in ref or "\\" in ref:
         raise ValueError(f"invalid artifact ref '{ref}'")
-    path = artifacts_root() / ref
-    # ensure resolved path is under artifacts_root
-    try:
-        path.resolve().relative_to(artifacts_root().resolve())
-    except ValueError as exc:
-        raise ValueError(f"artifact ref escapes root: {ref}") from exc
+    if ref.startswith("/"):
+        path = Path(ref)
+        data_root = artifacts_root().resolve().parent
+        try:
+            path.resolve().relative_to(data_root)
+        except ValueError:
+            from forge.artifacts import LocalArtifactStore, artifact_store_from_env
+
+            store = artifact_store_from_env()
+            if isinstance(store, LocalArtifactStore):
+                try:
+                    path.resolve().relative_to(store.root.resolve())
+                except ValueError as exc:
+                    raise ValueError(f"artifact ref escapes root: {ref}") from exc
+            else:
+                raise ValueError(f"artifact ref escapes root: {ref}") from None
+    else:
+        path = artifacts_root() / ref
+        # ensure resolved path is under artifacts_root
+        try:
+            path.resolve().relative_to(artifacts_root().resolve())
+        except ValueError as exc:
+            raise ValueError(f"artifact ref escapes root: {ref}") from exc
     return cast("dict[str, Any]", json.loads(path.read_text()))
 
 

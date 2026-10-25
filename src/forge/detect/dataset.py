@@ -9,7 +9,9 @@ from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pandas as pd
+from pandas.util import hash_pandas_object
 
 from forge.actor_sandbox import ActorSandbox, legitimate_app_payment_plan
 from forge.artifacts import LocalArtifactStore
@@ -101,7 +103,7 @@ def build_dataset(
             {
                 "labels": [int(r["label"]) for _, r in df.iterrows()],
                 "feature_hash": hashlib.sha256(
-                    pd.util.hash_pandas_object(df[list(FEATURE_NAMES)], index=False).values.tobytes()
+                    np.asarray(hash_pandas_object(df[list(FEATURE_NAMES)], index=False)).tobytes()
                 ).hexdigest()[:16],
             },
             sort_keys=True,

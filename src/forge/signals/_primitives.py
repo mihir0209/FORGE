@@ -6,7 +6,6 @@ same objects. No second copy of BURST_WINDOW, BURST_COUNT, or evidence logic.
 
 from __future__ import annotations
 
-import itertools
 from collections import defaultdict
 from datetime import timedelta
 

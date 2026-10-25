@@ -7,10 +7,10 @@ when the chain terminates for that run.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import zlib
-from datetime import date
 from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -117,7 +117,7 @@ def stage_admit_cycle(data: dict[str, Any]) -> bool:
     )
     after = supervisor.load_required()
     if after.queue_alert_open and not before_alert:
-        try:
+        with contextlib.suppress(Exception):
             notifier_from_env().send(
                 notification_type="queue.full",
                 run_id=after.run_id,
@@ -126,8 +126,6 @@ def stage_admit_cycle(data: dict[str, Any]) -> bool:
                 dedup_scope=f"queue-episode-{after.version}",
                 dry_run=os.environ.get("SMTP_DRY_RUN", "0") == "1",
             )
-        except Exception:
-            pass
     return allowed
 
 

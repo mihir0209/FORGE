@@ -281,7 +281,7 @@ class AttackInjector:
         base_hour = self._hour(off_hours, merchant.category)
         out: list[TraceEvent] = []
         for i in range(count):
-            hour = min(base_hour + i * 0.25, 23.98)  # bursts pack into ~15-min steps
+            hour = min(base_hour + i * (5.0 / 60.0), 23.98)  # bursts pack into ~5-min steps
             out.append(
                 self._emit(
                     ts=self._at(start, day, hour),

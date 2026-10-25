@@ -2,7 +2,7 @@
 name = "forge"
 version = "0.1.0"
 description = "FORGE — Fraud Offense-defense Research and Generation Engine (Mastercard Innovation Challenge @ GFF 2026)"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "pydantic>=2.11,<3",
     "pydantic-ai>=2.33,<2.34",
@@ -39,8 +39,9 @@ packages = ["src/forge"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py313"
 src = ["src", "tests"]
+extend-exclude = ["vendor"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "TCH", "RUF"]

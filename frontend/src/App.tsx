@@ -11,7 +11,6 @@ import {
   FlaskConical,
   Gauge,
   GitBranch,
-  HardDrive,
   Menu,
   Play,
   Radar,
@@ -21,12 +20,7 @@ import {
   Sparkles,
   Target,
   X,
-  Zap,
-  ArrowUpRight,
-  Sliders,
-  CheckCircle2,
-  AlertTriangle,
-  FileCode
+  CheckCircle2
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import NumberFlow from "@number-flow/react";
@@ -34,7 +28,7 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 import { toast } from "sonner";
 import { api } from "./api";
 import { useLabStore } from "./store";
-import type { Coverage, CycleDetail, CycleSummary, Gap, ModelCard, Operations, PendingVariant, StrategyRepository, StrategyRepositoryEntry, View } from "./types";
+import type { Coverage, CycleDetail, CycleSummary, Gap, ModelCard, Operations, PendingVariant, StrategyRepository, View } from "./types";
 
 const nav: Array<{ id: View; label: string; icon: typeof Activity }> = [
   { id: "overview", label: "Control Room", icon: Activity },
@@ -465,8 +459,9 @@ function StrategyRepositoryView({ repository, onRepository }: { repository: Stra
         <section className="panel cycle-selector">
           <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--line)" }}>
             <input
-              style={{ width: "100%", padding: "8px 10px", borderRadius: "5px", border: "1px solid var(--line-strong)", background: "#0d0f0c", color: "#fff", fontSize: "12px" }}
-              placeholder="Filter by family, tactic, ID..."
+              style={{ width: "100%", padding: "8px 10px", borderRadius: "5px", border: "1px solid var(--line-strong)", background: "#0d0f0c", color: "#fff", fontSize: "12px", opacity: loading ? 0.6 : 1 }}
+              placeholder={loading ? "Searching..." : "Filter by family, tactic, ID..."}
+              disabled={loading}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") void search(); }}
