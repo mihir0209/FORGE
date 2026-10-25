@@ -38,6 +38,13 @@ from forge.velocity_limiter import (
     PaymentChannel,
     RateLimitResult,
 )
+from forge.synthetic_identity import (
+    SyntheticIdentityProfile,
+    BustOutFeatureVector,
+    SyntheticIdentityResult,
+    BustOutPredictionResult,
+    SyntheticIdentityEngine,
+)
 
 __version__ = "0.1.0"
 
@@ -71,4 +78,9 @@ __all__ = [
     "AccountTier",
     "PaymentChannel",
     "RateLimitResult",
+    "SyntheticIdentityProfile",
+    "BustOutFeatureVector",
+    "SyntheticIdentityResult",
+    "BustOutPredictionResult",
+    "SyntheticIdentityEngine",
 ]
