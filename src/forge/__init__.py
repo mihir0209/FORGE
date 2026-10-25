@@ -13,6 +13,12 @@ from forge.mule_ring import (
     TransactionEdge,
     canonicalize_cycle,
 )
+from forge.streaming_scorer import (
+    RiskAssessment,
+    RiskDecision,
+    StreamingRiskEngine,
+    StreamingTransaction,
+)
 
 __version__ = "0.1.0"
 
@@ -24,7 +30,10 @@ __all__ = [
     "MuleRingDetectionResult",
     "MuleRingDetector",
     "MuleRingGraph",
+    "RiskAssessment",
+    "RiskDecision",
+    "StreamingRiskEngine",
+    "StreamingTransaction",
     "TransactionEdge",
     "canonicalize_cycle",
 ]
-
