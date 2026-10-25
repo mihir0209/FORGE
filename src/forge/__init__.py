@@ -19,13 +19,23 @@ from forge.streaming_scorer import (
     StreamingRiskEngine,
     StreamingTransaction,
 )
+from forge.rule_engine import AdaptiveRuleEngine, Condition, Rule, RuleAction
+from forge.behavioral_engine import (
+    BehavioralProfiler,
+    UserBehavioralProfile,
+    AnomalyScoreResult,
+)
+from forge.device_fingerprint import (
+    DeviceFingerprint,
+    DeviceFingerprintEngine,
+    BotAnalysisResult,
+    SessionDriftResult,
+    DeviceVelocityResult,
+)
 
 __version__ = "0.1.0"
 
 __all__ = [
-    "AnomalyScoreResult",
-    "BehavioralProfiler",
-    "UserBehavioralProfile",
     "AdaptiveRuleEngine",
     "Rule",
     "Condition",
@@ -43,6 +53,12 @@ __all__ = [
     "StreamingTransaction",
     "TransactionEdge",
     "canonicalize_cycle",
+    "BehavioralProfiler",
+    "UserBehavioralProfile",
+    "AnomalyScoreResult",
+    "DeviceFingerprint",
+    "DeviceFingerprintEngine",
+    "BotAnalysisResult",
+    "SessionDriftResult",
+    "DeviceVelocityResult",
 ]
-from .rule_engine import AdaptiveRuleEngine, Condition, Rule, RuleAction
-from .behavioral_engine import AnomalyScoreResult, BehavioralProfiler, UserBehavioralProfile
