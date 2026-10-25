@@ -23,6 +23,10 @@ from forge.streaming_scorer import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "AdaptiveRuleEngine",
+    "Rule",
+    "Condition",
+    "RuleAction",
     "AdversarialAttackGenerator",
     "AdversarialTransaction",
     "AttackMode",
@@ -37,3 +41,4 @@ __all__ = [
     "TransactionEdge",
     "canonicalize_cycle",
 ]
+from .rule_engine import AdaptiveRuleEngine, Condition, Rule, RuleAction
