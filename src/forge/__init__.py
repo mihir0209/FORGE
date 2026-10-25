@@ -23,6 +23,9 @@ from forge.streaming_scorer import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "AnomalyScoreResult",
+    "BehavioralProfiler",
+    "UserBehavioralProfile",
     "AdaptiveRuleEngine",
     "Rule",
     "Condition",
@@ -42,3 +45,4 @@ __all__ = [
     "canonicalize_cycle",
 ]
 from .rule_engine import AdaptiveRuleEngine, Condition, Rule, RuleAction
+from .behavioral_engine import AnomalyScoreResult, BehavioralProfiler, UserBehavioralProfile
