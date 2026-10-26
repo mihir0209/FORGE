@@ -84,6 +84,21 @@ from forge.merchant_collusion import (
     MerchantRiskReport,
     MerchantCollusionSentinel,
 )
+from forge.smurfing_detector import (
+    TransactionRecord,
+    SmurfingAlert,
+    SmurfingDetector,
+)
+from forge.device_entropy import (
+    DeviceProfile,
+    DeviceEntropyReport,
+    DeviceEntropyClassifier,
+)
+from forge.adaptive_velocity_governor import (
+    VelocityEvent,
+    VelocityMetrics,
+    AdaptiveVelocityGovernor,
+)
 
 __version__ = "0.1.0"
 
@@ -149,4 +164,13 @@ __all__ = [
     "MerchantTransaction",
     "MerchantRiskReport",
     "MerchantCollusionSentinel",
+    "TransactionRecord",
+    "SmurfingAlert",
+    "SmurfingDetector",
+    "DeviceProfile",
+    "DeviceEntropyReport",
+    "DeviceEntropyClassifier",
+    "VelocityEvent",
+    "VelocityMetrics",
+    "AdaptiveVelocityGovernor",
 ]
