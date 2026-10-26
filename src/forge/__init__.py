@@ -99,6 +99,17 @@ from forge.adaptive_velocity_governor import (
     VelocityMetrics,
     AdaptiveVelocityGovernor,
 )
+from forge.synthetic_identity_detector import (
+    SyntheticIdentityDetector,
+)
+from forge.app_scam_shield import (
+    APPScamShield,
+    APPScamDecision,
+)
+from forge.bin_attack_sentinel import (
+    BINAttackSentinel,
+    BINAttackAlert,
+)
 
 __version__ = "0.1.0"
 
@@ -173,4 +184,9 @@ __all__ = [
     "VelocityEvent",
     "VelocityMetrics",
     "AdaptiveVelocityGovernor",
+    "SyntheticIdentityDetector",
+    "APPScamShield",
+    "APPScamDecision",
+    "BINAttackSentinel",
+    "BINAttackAlert",
 ]
